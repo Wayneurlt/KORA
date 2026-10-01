@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client'
 import { requireSection } from '../../utils/rbac'
 import { prisma } from '../../utils/prisma'
 import { contains, resultsQuery, searchWhere } from '../../validators/lists'
+import { gradeForScore } from '../../services/grading'
 
 const round1 = (value: number) => Math.round(value * 10) / 10
 
@@ -21,8 +22,8 @@ export default defineEventHandler(async (event) => {
     ?? exams[0]
 
   const settings = await prisma.schoolSettings.findFirst({ include: { gradeBands: true } })
-  const bands = [...(settings?.gradeBands ?? [])].sort((a, b) => b.minScore - a.minScore)
-  const gradeFor = (score: number) => bands.find(band => score >= band.minScore)?.grade ?? null
+  const bands = settings?.gradeBands ?? []
+  const gradeFor = (score: number) => gradeForScore(score, bands)
 
   const examList = exams.map(item => ({
     id: item.id,

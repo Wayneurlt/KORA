@@ -6,6 +6,8 @@ declare module '#auth-utils' {
     name: string
     email: string
     role: AppRole
+    /** One-time password in use — must be changed before anything else */
+    mustChangePassword?: boolean
   }
 
   interface UserSession {

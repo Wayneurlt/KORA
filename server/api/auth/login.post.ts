@@ -29,10 +29,11 @@ export default defineEventHandler(async (event) => {
       id: user.id,
       name: user.name,
       email: user.email,
-      role: user.role
+      role: user.role,
+      mustChangePassword: user.mustChangePassword
     },
     loggedInAt: Date.now()
   })
 
-  return { id: user.id, name: user.name, email: user.email, role: user.role }
+  return { id: user.id, name: user.name, email: user.email, role: user.role, mustChangePassword: user.mustChangePassword }
 })

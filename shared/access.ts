@@ -10,6 +10,7 @@ export const SECTIONS = [
   'fees',
   'announcements',
   'conversations',
+  'staff',
   'settings'
 ] as const
 export type AppSection = (typeof SECTIONS)[number]
@@ -26,9 +27,23 @@ export const SECTION_ACCESS: Record<AppSection, readonly AppRole[]> = {
   fees: ['ADMIN', 'FINANCE'],
   announcements: ['ADMIN'],
   conversations: ['ADMIN', 'SUPPORT'],
+  staff: ['ADMIN'],
   settings: ['ADMIN']
 }
 
 export function canAccessSection(role: AppRole, section: AppSection): boolean {
   return SECTION_ACCESS[section].includes(role)
+}
+
+/**
+ * Who may create / change records in a section (viewing uses SECTION_ACCESS).
+ * Mostly the same roles, except student & parent records are admin-managed.
+ */
+export const MANAGE_ACCESS: Record<AppSection, readonly AppRole[]> = {
+  ...SECTION_ACCESS,
+  students: ['ADMIN']
+}
+
+export function canManageSection(role: AppRole, section: AppSection): boolean {
+  return MANAGE_ACCESS[section].includes(role)
 }

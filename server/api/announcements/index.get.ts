@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client'
 import { requireSection } from '../../utils/rbac'
 import { prisma } from '../../utils/prisma'
 import { announcementListQuery, contains, searchWhere } from '../../validators/lists'
+import { deliveryStats } from '../../services/announcement.service'
 
 export default defineEventHandler(async (event) => {
   await requireSection(event, 'announcements')
@@ -40,6 +41,8 @@ export default defineEventHandler(async (event) => {
     for (const link of links) studentReach.set(link.studentId, link._count._all)
   }
 
+  const stats = await deliveryStats(announcements.map(item => item.id))
+
   return {
     counts: Object.fromEntries(statusCounts.map(row => [row.status, row._count._all])) as Partial<Record<'PUBLISHED' | 'DRAFT' | 'ARCHIVED', number>>,
     items: announcements.map(item => ({
@@ -48,6 +51,9 @@ export default defineEventHandler(async (event) => {
       message: item.message,
       status: item.status,
       targetType: item.targetType,
+      targetClass: item.targetClass,
+      targetStudentId: item.targetStudentId,
+      delivery: stats.get(item.id) ?? null,
       targetLabel: item.targetType === 'ALL'
         ? 'All parents'
         : item.targetType === 'CLASS'

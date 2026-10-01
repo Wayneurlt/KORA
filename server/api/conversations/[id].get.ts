@@ -25,7 +25,9 @@ export default defineEventHandler(async (event) => {
     category: conversation.category,
     status: conversation.status,
     assignedTo: conversation.assignedTo?.name ?? null,
+    assignedToId: conversation.assignedToId,
     createdAt: conversation.createdAt,
+    lastInboundAt: [...conversation.messages].reverse().find(message => message.direction === 'INBOUND')?.createdAt ?? null,
     parent: {
       id: conversation.parent.id,
       name: `${conversation.parent.firstName} ${conversation.parent.lastName}`,

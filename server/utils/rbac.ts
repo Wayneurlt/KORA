@@ -1,5 +1,5 @@
 import type { H3Event } from 'h3'
-import { canAccessSection, type AppSection } from '../../shared/access'
+import { canAccessSection, canManageSection, type AppSection } from '../../shared/access'
 
 /**
  * Authenticates the request and asserts the logged-in staff user may access
@@ -26,6 +26,20 @@ export async function requireRole(event: H3Event, roles: readonly string[]) {
     throw createError({
       statusCode: 403,
       statusMessage: 'You do not have permission to perform this action.'
+    })
+  }
+
+  return user
+}
+
+/** Like requireSection, but for create / update / delete actions. */
+export async function requireManage(event: H3Event, section: AppSection) {
+  const { user } = await requireUserSession(event)
+
+  if (!canManageSection(user.role, section)) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'You do not have permission to make changes here.'
     })
   }
 

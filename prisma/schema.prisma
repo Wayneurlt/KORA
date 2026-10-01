@@ -164,6 +164,8 @@ model User {
   passwordHash String
   role         Role
   status       UserStatus @default(ACTIVE)
+  /// Set when an admin resets the password; the user must pick a new one on next login.
+  mustChangePassword Boolean @default(false)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -193,6 +195,7 @@ model Parent {
   children      ParentStudent[]
   conversations Conversation[]
   messages      Message[]
+  announcementDeliveries AnnouncementDelivery[]
 
   @@index([whatsappNumber])
 }
@@ -343,6 +346,7 @@ model Announcement {
 
   createdBy     User     @relation("AnnouncementCreatedBy", fields: [createdById], references: [id])
   targetStudent Student? @relation(fields: [targetStudentId], references: [id])
+  deliveries    AnnouncementDelivery[]
 
   @@index([status])
 }
@@ -385,6 +389,7 @@ model Message {
   staff        User?        @relation("MessageSentByStaff", fields: [staffId], references: [id])
 
   @@index([conversationId])
+  @@index([providerMessageId])
 }
 
 // ---------------------------------------------------------------------------
@@ -404,4 +409,22 @@ model AuditLog {
 
   @@index([entity, entityId])
   @@index([createdAt])
+}
+
+/// One WhatsApp send of a published announcement to one parent.
+model AnnouncementDelivery {
+  id                String         @id @default(cuid())
+  announcementId    String
+  parentId          String
+  providerMessageId String?        @unique
+  status            DeliveryStatus @default(QUEUED)
+  error             String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  parent       Parent       @relation(fields: [parentId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, parentId])
+  @@index([announcementId])
 }
