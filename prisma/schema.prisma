@@ -1,0 +1,407 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  FINANCE
+  ACADEMIC
+  SUPPORT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ParentStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+}
+
+enum StudentStatus {
+  ACTIVE
+  INACTIVE
+  GRADUATED
+}
+
+enum ExamStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum SubjectStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum FeeRecordStatus {
+  ACTIVE
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  MPESA
+  CHEQUE
+  OTHER
+}
+
+enum PaymentStatus {
+  COMPLETED
+  PENDING
+  FAILED
+  REFUNDED
+}
+
+enum AnnouncementTargetType {
+  ALL
+  CLASS
+  STUDENT
+}
+
+enum AnnouncementStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ConversationCategory {
+  FINANCE
+  ACADEMIC
+  GENERAL
+  TALK_TO_SCHOOL
+}
+
+enum ConversationStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageType {
+  TEXT
+  INTERACTIVE
+  DOCUMENT
+  TEMPLATE
+}
+
+enum DeliveryStatus {
+  RECEIVED
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+// ---------------------------------------------------------------------------
+// School configuration (single school — one active row)
+// ---------------------------------------------------------------------------
+
+model SchoolSettings {
+  id        String   @id @default(cuid())
+  name      String
+  logo      String?
+  phone     String?
+  email     String?
+  address   String?
+  website   String?
+  currency  String   @default("KES")
+  timezone  String   @default("Africa/Nairobi")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  gradeBands GradeBand[]
+}
+
+/// Configurable grading scale — never hard-code grade thresholds in app code.
+model GradeBand {
+  id               String   @id @default(cuid())
+  schoolSettingsId String
+  grade            String
+  minScore         Int
+  maxScore         Int
+  comment          String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  schoolSettings SchoolSettings @relation(fields: [schoolSettingsId], references: [id], onDelete: Cascade)
+
+  @@index([schoolSettingsId])
+}
+
+// ---------------------------------------------------------------------------
+// Staff / dashboard users
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  passwordHash String
+  role         Role
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  createdAnnouncements  Announcement[] @relation("AnnouncementCreatedBy")
+  assignedConversations Conversation[] @relation("ConversationAssignedTo")
+  staffMessages         Message[]      @relation("MessageSentByStaff")
+  auditLogs             AuditLog[]
+}
+
+// ---------------------------------------------------------------------------
+// Parents & students
+// ---------------------------------------------------------------------------
+
+model Parent {
+  id                 String              @id @default(cuid())
+  firstName          String
+  lastName           String
+  phoneNumber        String
+  whatsappNumber     String              @unique
+  email              String?
+  status             ParentStatus        @default(ACTIVE)
+  verificationStatus VerificationStatus  @default(UNVERIFIED)
+  verificationCode   String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  children      ParentStudent[]
+  conversations Conversation[]
+  messages      Message[]
+
+  @@index([whatsappNumber])
+}
+
+model Student {
+  id              String        @id @default(cuid())
+  admissionNumber String        @unique
+  firstName       String
+  lastName        String
+  dateOfBirth     DateTime?
+  className       String
+  stream          String?
+  status          StudentStatus @default(ACTIVE)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  parents       ParentStudent[]
+  results       Result[]
+  feeRecords    FeeRecord[]
+  payments      Payment[]
+  announcements Announcement[]
+
+  @@index([className])
+  @@index([admissionNumber])
+}
+
+/// Join table — WhatsApp access must only ever expose children linked here.
+model ParentStudent {
+  id           String   @id @default(cuid())
+  parentId     String
+  studentId    String
+  relationship String
+  createdAt    DateTime @default(now())
+
+  parent  Parent  @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([parentId, studentId])
+  @@index([studentId])
+  @@index([parentId])
+}
+
+// ---------------------------------------------------------------------------
+// Academics
+// ---------------------------------------------------------------------------
+
+model Exam {
+  id           String     @id @default(cuid())
+  name         String
+  term         String
+  academicYear String
+  startDate    DateTime?
+  endDate      DateTime?
+  status       ExamStatus @default(DRAFT)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  results Result[]
+
+  @@index([status])
+}
+
+model Subject {
+  id     String        @id @default(cuid())
+  name   String
+  code   String        @unique
+  status SubjectStatus @default(ACTIVE)
+
+  results Result[]
+}
+
+model Result {
+  id             String   @id @default(cuid())
+  studentId      String
+  examId         String
+  subjectId      String
+  score          Float
+  grade          String?
+  teacherComment String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  exam    Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, examId, subjectId])
+  @@index([examId])
+  @@index([studentId])
+}
+
+// ---------------------------------------------------------------------------
+// Fees
+// ---------------------------------------------------------------------------
+
+model FeeRecord {
+  id           String          @id @default(cuid())
+  studentId    String
+  academicYear String
+  term         String
+  description  String
+  amount       Float
+  dueDate      DateTime?
+  status       FeeRecordStatus @default(ACTIVE)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@index([academicYear, term])
+}
+
+/// Manually recorded for V1 — kept modular so an M-Pesa integration can create
+/// these the same way later without changing the balance calculation.
+model Payment {
+  id               String        @id @default(cuid())
+  studentId        String
+  amount           Float
+  paymentReference String?
+  paymentMethod    PaymentMethod
+  paymentDate      DateTime      @default(now())
+  status           PaymentStatus @default(COMPLETED)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+}
+
+// ---------------------------------------------------------------------------
+// Announcements
+// ---------------------------------------------------------------------------
+
+model Announcement {
+  id              String                 @id @default(cuid())
+  title           String
+  message         String
+  targetType      AnnouncementTargetType @default(ALL)
+  targetClass     String?
+  targetStudentId String?
+  status          AnnouncementStatus     @default(DRAFT)
+  publishedAt     DateTime?
+  createdById     String
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  createdBy     User     @relation("AnnouncementCreatedBy", fields: [createdById], references: [id])
+  targetStudent Student? @relation(fields: [targetStudentId], references: [id])
+
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// WhatsApp conversations & messages
+// ---------------------------------------------------------------------------
+
+model Conversation {
+  id           String               @id @default(cuid())
+  parentId     String
+  category     ConversationCategory
+  status       ConversationStatus   @default(OPEN)
+  assignedToId String?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  parent     Parent    @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  assignedTo User?     @relation("ConversationAssignedTo", fields: [assignedToId], references: [id])
+  messages   Message[]
+
+  @@index([status])
+  @@index([parentId])
+}
+
+model Message {
+  id                String           @id @default(cuid())
+  conversationId    String
+  parentId          String?
+  staffId           String?
+  direction         MessageDirection
+  messageType       MessageType      @default(TEXT)
+  content           String
+  providerMessageId String?
+  deliveryStatus    DeliveryStatus   @default(QUEUED)
+  createdAt         DateTime         @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  parent       Parent?      @relation(fields: [parentId], references: [id])
+  staff        User?        @relation("MessageSentByStaff", fields: [staffId], references: [id])
+
+  @@index([conversationId])
+}
+
+// ---------------------------------------------------------------------------
+// Audit log
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+}

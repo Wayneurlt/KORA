@@ -1,0 +1,47 @@
+{
+  "name": "KORA",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "lint": "eslint .",
+    "typecheck": "nuxt typecheck",
+    "db:migrate": "prisma migrate dev",
+    "db:generate": "prisma generate",
+    "db:seed": "prisma db seed",
+    "db:seed:test-students": "tsx prisma/seed-test-students.ts",
+    "db:seed:test-activity": "tsx prisma/seed-test-activity.ts",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@iconify-json/lucide": "^1.2.137",
+    "@iconify-json/simple-icons": "^1.2.97",
+    "@nuxt/ui": "^4.11.2",
+    "@pinia/nuxt": "^1.0.2",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "nuxt": "^4.5.2",
+    "nuxt-auth-utils": "^0.5.30",
+    "pg": "^8.23.1",
+    "pinia": "^4.0.3",
+    "prisma": "^7.10.0",
+    "tailwindcss": "^4.3.3",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@nuxt/eslint": "^1.17.0",
+    "@types/pg": "^8.23.1",
+    "eslint": "^10.11.0",
+    "eslint-plugin-better-tailwindcss": "^4.7.0",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "vue-tsc": "^3.3.11"
+  },
+  "overrides": {
+    "h3": "1.15.11"
+  },
+  "packageManager": "npm@10.9.2"
+}

@@ -1,0 +1,107 @@
+@import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+@theme static {
+  --font-sans: 'Public Sans', sans-serif;
+  --font-logo: 'Unbounded', sans-serif;
+  --font-dash: 'Inter', sans-serif;
+
+  /* Dashboard greens — see design/DESIGN.md */
+  --color-leaf-50: #F0FAF4;
+  --color-leaf-100: #E3F4EA;
+  --color-leaf-200: #BFE8D0;
+  --color-leaf-400: #5DBB8A;
+  --color-leaf-600: #2E7D50;
+  --color-leaf-700: #1A6B3C;
+  --color-leaf-800: #14532D;
+  --color-leaf-900: #0F3D24;
+
+  /* Kora green — overrides Tailwind's green scale so primary="green" resolves to the
+     dashboard greens (500 = buttons in light mode, 400 = primary in dark mode). */
+  --color-green-50: #F0FAF4;
+  --color-green-100: #E3F4EA;
+  --color-green-200: #BFE8D0;
+  --color-green-300: #8FD3AE;
+  --color-green-400: #5DBB8A;
+  --color-green-500: #14532D;
+  --color-green-600: #104726;
+  --color-green-700: #0F3D24;
+  --color-green-800: #0B2E1B;
+  --color-green-900: #071F12;
+  --color-green-950: #041209;
+
+  /* Kora navy — overrides Tailwind's default blue scale so primary="blue" resolves here.
+     "Classic navy": richer and more saturated than a muted slate-blue, still dark. */
+  --color-blue-50: #EEF3FA;
+  --color-blue-100: #D6E4F2;
+  --color-blue-200: #ADC8E3;
+  --color-blue-300: #7CA3CE;
+  --color-blue-400: #3F6CA3;
+  --color-blue-500: #1B3358;
+  --color-blue-600: #152947;
+  --color-blue-700: #101F37;
+  --color-blue-800: #0B1527;
+  --color-blue-900: #070E1A;
+  --color-blue-950: #040810;
+}
+
+@theme inline {
+  --animate-text-reveal: text-reveal 0.4s ease-out forwards;
+  @keyframes text-reveal {
+    from {
+      opacity: 0;
+      filter: blur(4px);
+      transform: translateY(0.2em);
+    }
+    to {
+      opacity: 1;
+      filter: blur(0);
+      transform: translateY(0);
+    }
+  }
+}
+
+
+/* Dashboard shell surfaces (design/references/dashboard.png) */
+:root {
+  --shell-canvas: #EDEDED;
+  --shell-frame: #FFFFFF;
+  --shell-panel: #F5F5F5;
+  --shell-card: #FFFFFF;
+  --shell-ink: #111111;
+  --shell-muted: #8A8A8A;
+  --shell-line: #E4E4E4;
+  --shell-hatch: #A3A9B1;
+}
+
+.dark {
+  --shell-canvas: #070A08;
+  --shell-frame: #0E1310;
+  --shell-panel: #141A16;
+  --shell-card: #1B221E;
+  --shell-ink: #F2F4F3;
+  --shell-muted: #8D9790;
+  --shell-line: #2A332E;
+  --shell-hatch: #56605A;
+}
+
+@theme inline {
+  --color-shell-canvas: var(--shell-canvas);
+  --color-shell-frame: var(--shell-frame);
+  --color-shell-panel: var(--shell-panel);
+  --color-shell-card: var(--shell-card);
+  --color-shell-ink: var(--shell-ink);
+  --color-shell-muted: var(--shell-muted);
+  --color-shell-line: var(--shell-line);
+}
+
+@utility bg-leaf-gradient {
+  background-image: linear-gradient(135deg, #1F7A4A 0%, #14532D 55%, #0F3D24 100%);
+}
+
+@utility bg-hatch {
+  background-color: var(--shell-card);
+  background-image: repeating-linear-gradient(135deg, var(--shell-hatch) 0 2.5px, transparent 2.5px 9px);
+}
