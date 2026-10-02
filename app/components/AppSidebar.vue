@@ -32,13 +32,14 @@ async function logout() {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div
-      v-if="isOpen"
-      class="fixed inset-0 z-40 bg-black/50 lg:hidden"
-      @click="close"
-    />
-  </Teleport>
+  <!-- Kept beside the drawer (not teleported to <body>): the app root is its own
+       stacking context, so a body-level backdrop would sit on top of the drawer. -->
+  <div
+    v-if="isOpen"
+    class="fixed inset-0 z-40 bg-black/50 lg:hidden"
+    aria-hidden="true"
+    @click="close"
+  />
 
   <aside
     class="fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 -translate-x-full flex-col rounded-r-[22px] bg-shell-panel font-dash transition-transform duration-200 ease-out lg:static lg:z-auto lg:w-60 lg:translate-x-0 lg:rounded-[22px]"
