@@ -13,6 +13,7 @@ definePageMeta({
 const route = useRoute()
 const { user } = useUserSession()
 const { data } = await useFetch('/api/dashboard/overview')
+const { canManage } = usePermissions()
 
 const can = (section: Parameters<typeof canAccessSection>[1]) =>
   !!user.value && canAccessSection(user.value.role, section)
@@ -119,8 +120,8 @@ const staff = computed(() =>
     >
       <template #actions>
         <NuxtLink
-          v-if="can('students')"
-          to="/dashboard/students"
+          v-if="canManage('students')"
+          to="/dashboard/students?new=1"
           class="bg-leaf-gradient flex h-11 items-center gap-2 rounded-full px-5 text-sm font-medium text-white transition-opacity hover:opacity-90"
         >
           <UIcon
@@ -130,8 +131,8 @@ const staff = computed(() =>
           Add Student
         </NuxtLink>
         <NuxtLink
-          v-if="can('announcements')"
-          to="/dashboard/announcements"
+          v-if="canManage('announcements')"
+          to="/dashboard/announcements?new=1"
           class="flex h-11 items-center rounded-full border-[1.5px] border-leaf-800 px-5 text-sm font-medium text-leaf-900 transition-colors hover:bg-leaf-50 dark:border-leaf-400 dark:text-leaf-200 dark:hover:bg-leaf-900/40"
         >
           Send Notice
@@ -154,8 +155,8 @@ const staff = computed(() =>
             Staff Team
           </p>
           <NuxtLink
-            v-if="can('settings')"
-            to="/dashboard/settings"
+            v-if="can('staff')"
+            to="/dashboard/staff"
             class="flex h-6.5 items-center gap-1 rounded-full border border-leaf-800 px-2.5 text-[11px] font-medium text-leaf-900 transition-colors hover:bg-leaf-50 dark:border-leaf-400 dark:text-leaf-200 dark:hover:bg-leaf-900/40"
           >
             <UIcon

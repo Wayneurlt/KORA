@@ -1,5 +1,6 @@
 import { requireSection } from '../../utils/rbac'
 import { prisma } from '../../utils/prisma'
+import { isWhatsAppLive, withinServiceWindow } from '../../utils/whatsapp'
 
 export default defineEventHandler(async (event) => {
   await requireSection(event, 'conversations')
@@ -20,6 +21,9 @@ export default defineEventHandler(async (event) => {
   })
   if (!conversation) throw createError({ statusCode: 404, statusMessage: 'Conversation not found.' })
 
+  const lastInboundAt = [...conversation.messages].reverse().find(message => message.direction === 'INBOUND')?.createdAt ?? null
+  const live = isWhatsAppLive()
+
   return {
     id: conversation.id,
     category: conversation.category,
@@ -27,7 +31,10 @@ export default defineEventHandler(async (event) => {
     assignedTo: conversation.assignedTo?.name ?? null,
     assignedToId: conversation.assignedToId,
     createdAt: conversation.createdAt,
-    lastInboundAt: [...conversation.messages].reverse().find(message => message.direction === 'INBOUND')?.createdAt ?? null,
+    lastInboundAt,
+    whatsappLive: live,
+    // WhatsApp only delivers free-form replies within 24h of the parent's last message.
+    canReply: conversation.status !== 'CLOSED' && (!live || withinServiceWindow(lastInboundAt)),
     parent: {
       id: conversation.parent.id,
       name: `${conversation.parent.firstName} ${conversation.parent.lastName}`,

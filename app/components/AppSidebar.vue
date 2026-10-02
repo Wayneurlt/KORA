@@ -7,8 +7,9 @@ const router = useRouter()
 const { data: school } = await useFetch('/api/public/school')
 const { data: badges } = await useFetch('/api/dashboard/badges')
 
-const mainItems = computed(() => items.value.filter(item => item.to !== '/dashboard/settings'))
-const generalItems = computed(() => items.value.filter(item => item.to === '/dashboard/settings'))
+const GENERAL = ['/dashboard/staff', '/dashboard/settings']
+const mainItems = computed(() => items.value.filter(item => !GENERAL.includes(item.to)))
+const generalItems = computed(() => items.value.filter(item => GENERAL.includes(item.to)))
 const canOpenInbox = computed(() => items.value.some(item => item.to === '/dashboard/conversations'))
 
 function isActive(to: string) {

@@ -20,7 +20,10 @@ watch([search, className, feeStatus], () => {
   page.value = 1
 })
 
-const { data, status } = await useFetch('/api/fees', {
+const { canManage } = usePermissions()
+const toast = useToast()
+
+const { data, status, refresh } = await useFetch('/api/fees', {
   query: { search, className, status: feeStatus, page }
 })
 
@@ -62,6 +65,23 @@ function openStudent(id: string) {
   panelOpen.value = true
 }
 
+const paymentOpen = ref(false)
+const billOpen = ref(false)
+const updating = ref<string | null>(null)
+
+async function setPaymentStatus(id: string, next: 'COMPLETED' | 'FAILED') {
+  updating.value = id
+  try {
+    await $fetch(`/api/payments/${id}`, { method: 'PATCH', body: { status: next } })
+    toast.add({ title: next === 'COMPLETED' ? 'Payment confirmed' : 'Payment marked as failed', color: next === 'COMPLETED' ? 'success' : 'neutral' })
+    await refresh()
+  } catch (error) {
+    toast.add({ title: apiErrorMessage(error), color: 'error' })
+  } finally {
+    updating.value = null
+  }
+}
+
 const methodIcon: Record<string, string> = {
   MPESA: 'i-lucide-smartphone',
   BANK_TRANSFER: 'i-lucide-landmark',
@@ -76,7 +96,35 @@ const methodIcon: Record<string, string> = {
     <PageHeader
       :title="(route.meta.title as string)"
       :description="(route.meta.description as string)"
-    />
+    >
+      <template
+        v-if="canManage('fees')"
+        #actions
+      >
+        <button
+          type="button"
+          class="flex h-11 items-center gap-2 rounded-full border-[1.5px] border-leaf-800 px-5 text-sm font-medium text-leaf-900 transition-colors hover:bg-leaf-50 dark:border-leaf-400 dark:text-leaf-200 dark:hover:bg-leaf-900/40"
+          @click="billOpen = true"
+        >
+          <UIcon
+            name="i-lucide-file-plus-2"
+            class="size-4.5"
+          />
+          Bill fees
+        </button>
+        <button
+          type="button"
+          class="bg-leaf-gradient flex h-11 items-center gap-2 rounded-full px-5 text-sm font-medium text-white transition-opacity hover:opacity-90"
+          @click="paymentOpen = true"
+        >
+          <UIcon
+            name="i-lucide-plus"
+            class="size-4.5"
+          />
+          Record payment
+        </button>
+      </template>
+    </PageHeader>
 
     <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
       <DashboardStatCard
@@ -211,6 +259,31 @@ const methodIcon: Record<string, string> = {
                 />
               </span>
             </button>
+            <div
+              v-if="payment.status === 'PENDING' && canManage('fees')"
+              class="mb-1 ml-15 flex gap-1.5"
+            >
+              <button
+                type="button"
+                class="flex h-7 items-center gap-1 rounded-full bg-leaf-800 px-3 text-[11px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-leaf-600"
+                :disabled="updating === payment.id"
+                @click="setPaymentStatus(payment.id, 'COMPLETED')"
+              >
+                <UIcon
+                  name="i-lucide-check"
+                  class="size-3.5"
+                />
+                Confirm
+              </button>
+              <button
+                type="button"
+                class="h-7 rounded-full px-3 text-[11px] font-medium text-shell-muted transition-colors hover:bg-shell-panel hover:text-[#B91C1C] disabled:opacity-50"
+                :disabled="updating === payment.id"
+                @click="setPaymentStatus(payment.id, 'FAILED')"
+              >
+                Reject
+              </button>
+            </div>
           </li>
         </ul>
         <p
@@ -226,6 +299,16 @@ const methodIcon: Record<string, string> = {
       v-model:open="panelOpen"
       :student-id="selectedId"
       focus="fees"
+      @changed="refresh()"
+    />
+
+    <FeesRecordPaymentModal
+      v-model:open="paymentOpen"
+      @saved="refresh()"
+    />
+    <FeesBillFeesModal
+      v-model:open="billOpen"
+      @saved="refresh()"
     />
   </div>
 </template>

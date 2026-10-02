@@ -14,7 +14,10 @@ const search = ref('')
 const status = ref<'ACTIVE' | 'RESOLVED' | 'CLOSED' | 'ALL'>('ACTIVE')
 const category = ref('ALL')
 
-const { data, status: listStatus } = await useFetch('/api/conversations', {
+const { canManage } = usePermissions()
+const toast = useToast()
+
+const { data, status: listStatus, refresh: refreshList } = await useFetch('/api/conversations', {
   query: { search, status, category }
 })
 
@@ -81,6 +84,69 @@ watch(selectedId, async (id) => {
   await nextTick()
   thread.value?.scrollTo({ top: thread.value.scrollHeight })
 }, { immediate: true })
+
+async function reloadDetail() {
+  if (!selectedId.value) return
+  try {
+    detail.value = await loadConversation(selectedId.value)
+  } catch {
+    // keep the last copy
+  }
+}
+
+// Replying ----------------------------------------------------------------
+const reply = ref('')
+const sending = ref(false)
+const replyBox = ref<HTMLTextAreaElement | null>(null)
+
+async function sendReply() {
+  const content = reply.value.trim()
+  if (!content || !detail.value || sending.value) return
+  sending.value = true
+  try {
+    await $fetch(`/api/conversations/${detail.value.id}/messages`, { method: 'POST', body: { content } })
+    reply.value = ''
+    await Promise.all([reloadDetail(), refreshList()])
+    await nextTick()
+    thread.value?.scrollTo({ top: thread.value.scrollHeight, behavior: 'smooth' })
+  } catch (error) {
+    toast.add({ title: apiErrorMessage(error, 'Message not sent.'), color: 'error' })
+    await reloadDetail()
+  } finally {
+    sending.value = false
+    replyBox.value?.focus()
+  }
+}
+
+function onReplyKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault()
+    sendReply()
+  }
+}
+
+// Status & assignment ----------------------------------------------------
+const { data: assignees } = await useFetch('/api/options/assignees', { lazy: true, default: () => [], immediate: canManage('conversations') })
+const assigneeOptions = computed(() => [{ value: '', label: 'Unassigned' }, ...assignees.value.map(user => ({ value: user.id, label: user.name }))])
+const updating = ref(false)
+
+async function updateConversation(body: { status?: string, assignedToId?: string | null }) {
+  if (!detail.value) return
+  updating.value = true
+  try {
+    await $fetch(`/api/conversations/${detail.value.id}`, { method: 'PATCH', body })
+    await Promise.all([reloadDetail(), refreshList()])
+  } catch (error) {
+    toast.add({ title: apiErrorMessage(error), color: 'error' })
+  } finally {
+    updating.value = false
+  }
+}
+
+const assignee = computed({
+  get: () => detail.value?.assignedToId ?? '',
+  set: (value: string) => updateConversation({ assignedToId: value || null })
+})
 
 // Group messages under day separators.
 const days = computed(() => {
@@ -252,11 +318,68 @@ const days = computed(() => {
                 <span v-if="detail.parent.children.length">· Parent of {{ detail.parent.children.map(child => `${child.name} (${child.className})`).join(', ') }}</span>
               </p>
             </div>
-            <div class="hidden shrink-0 flex-col items-end gap-1 sm:flex">
+            <div
+              v-if="!canManage('conversations')"
+              class="hidden shrink-0 flex-col items-end gap-1 sm:flex"
+            >
               <DataChip :status="detail.status" />
               <span class="text-[11px] text-shell-muted">{{ detail.assignedTo ? `Assigned to ${detail.assignedTo}` : 'Unassigned' }}</span>
             </div>
+            <DataChip
+              v-else
+              :status="detail.status"
+              class="shrink-0"
+            />
           </header>
+
+          <div
+            v-if="canManage('conversations')"
+            class="flex flex-wrap items-center gap-2 border-b border-shell-line px-3 py-2.5 sm:px-4"
+            :class="updating && 'pointer-events-none opacity-60'"
+          >
+            <DataSelect
+              v-model="assignee"
+              label="Assigned to"
+              icon="i-lucide-user-round"
+              :options="assigneeOptions"
+              on-card
+              class="h-9"
+            />
+            <div class="ml-auto flex gap-1.5">
+              <template v-if="detail.status === 'OPEN' || detail.status === 'IN_PROGRESS'">
+                <button
+                  type="button"
+                  class="flex h-9 items-center gap-1.5 rounded-full bg-leaf-800 px-3.5 text-xs font-medium text-white transition-opacity hover:opacity-90 dark:bg-leaf-600"
+                  @click="updateConversation({ status: 'RESOLVED' })"
+                >
+                  <UIcon
+                    name="i-lucide-check"
+                    class="size-3.5"
+                  />
+                  Mark resolved
+                </button>
+                <button
+                  type="button"
+                  class="h-9 rounded-full bg-shell-panel px-3.5 text-xs font-medium transition-colors hover:text-shell-ink"
+                  @click="updateConversation({ status: 'CLOSED' })"
+                >
+                  Close
+                </button>
+              </template>
+              <button
+                v-else
+                type="button"
+                class="flex h-9 items-center gap-1.5 rounded-full bg-shell-panel px-3.5 text-xs font-medium transition-colors hover:text-leaf-800"
+                @click="updateConversation({ status: 'OPEN' })"
+              >
+                <UIcon
+                  name="i-lucide-rotate-ccw"
+                  class="size-3.5"
+                />
+                Reopen
+              </button>
+            </div>
+          </div>
 
           <div
             ref="thread"
@@ -281,10 +404,16 @@ const days = computed(() => {
                   :class="message.direction === 'OUTBOUND' ? 'rounded-tr-none bg-[#D9FDD3] dark:bg-[#005C4B] dark:text-white' : 'rounded-tl-none bg-white dark:bg-[#202C33] dark:text-white'"
                 >
                   <p
-                    v-if="message.direction === 'OUTBOUND' && message.staff"
-                    class="mb-0.5 text-[11px] font-semibold text-[#128C4B] dark:text-[#7AE3B0]"
+                    v-if="message.direction === 'OUTBOUND'"
+                    class="mb-0.5 flex items-center gap-1 text-[11px] font-semibold"
+                    :class="message.staff ? 'text-[#128C4B] dark:text-[#7AE3B0]' : 'text-[#667781] dark:text-white/50'"
                   >
-                    {{ message.staff }}
+                    <UIcon
+                      v-if="!message.staff"
+                      name="i-lucide-bot"
+                      class="size-3"
+                    />
+                    {{ message.staff ?? 'Automated reply' }}
                   </p>
                   <p class="whitespace-pre-line">
                     {{ message.content }}
@@ -292,7 +421,13 @@ const days = computed(() => {
                   <p class="mt-0.5 flex items-center justify-end gap-1 text-[10px] text-black/45 dark:text-white/50">
                     {{ formatTime(message.createdAt) }}
                     <UIcon
-                      v-if="message.direction === 'OUTBOUND'"
+                      v-if="message.direction === 'OUTBOUND' && message.deliveryStatus === 'FAILED'"
+                      name="i-lucide-circle-alert"
+                      class="size-3.5 text-[#DC2626]"
+                      title="Not delivered"
+                    />
+                    <UIcon
+                      v-else-if="message.direction === 'OUTBOUND'"
                       :name="message.deliveryStatus === 'SENT' || message.deliveryStatus === 'QUEUED' ? 'i-lucide-check' : 'i-lucide-check-check'"
                       class="size-3.5"
                       :class="message.deliveryStatus === 'READ' && 'text-[#53BDEB]'"
@@ -303,19 +438,54 @@ const days = computed(() => {
             </div>
           </div>
 
-          <footer class="flex items-center gap-2.5 border-t border-shell-line p-3">
-            <div class="flex h-11 flex-1 items-center rounded-full bg-shell-panel px-4 text-sm text-shell-muted">
-              Replying from the dashboard arrives with the WhatsApp connection
-            </div>
-            <span
-              class="flex size-11 shrink-0 items-center justify-center rounded-full bg-leaf-800/40 text-white"
-              aria-hidden="true"
+          <footer
+            v-if="canManage('conversations')"
+            class="border-t border-shell-line p-3"
+          >
+            <p
+              v-if="!detail.canReply"
+              class="flex items-start gap-2 rounded-2xl bg-shell-panel px-4 py-3 text-[13px] text-shell-muted"
             >
               <UIcon
-                name="i-lucide-send"
-                class="size-4.5"
+                name="i-lucide-clock"
+                class="mt-0.5 size-4 shrink-0"
               />
-            </span>
+              <span v-if="detail.status === 'CLOSED'">This conversation is closed. Reopen it to reply.</span>
+              <span v-else>{{ detail.parent.name.split(' ')[0] }} last wrote more than 24 hours ago, so WhatsApp won't deliver a free-form reply. Send them an announcement instead, or wait for them to message again.</span>
+            </p>
+            <form
+              v-else
+              class="flex items-end gap-2.5"
+              @submit.prevent="sendReply"
+            >
+              <textarea
+                ref="replyBox"
+                v-model="reply"
+                rows="1"
+                maxlength="4096"
+                :placeholder="`Reply to ${detail.parent.name.split(' ')[0]}…`"
+                class="field-sizing-content max-h-36 min-h-11 flex-1 resize-none rounded-[22px] bg-shell-panel px-4 py-3 text-sm outline-none placeholder:text-shell-muted focus:ring-2 focus:ring-leaf-600"
+                @keydown="onReplyKeydown"
+              />
+              <button
+                type="submit"
+                class="flex size-11 shrink-0 items-center justify-center rounded-full bg-leaf-800 text-white transition-opacity hover:opacity-90 disabled:opacity-40 dark:bg-leaf-600"
+                :disabled="!reply.trim() || sending"
+                aria-label="Send reply"
+              >
+                <UIcon
+                  :name="sending ? 'i-lucide-loader-circle' : 'i-lucide-send'"
+                  class="size-4.5"
+                  :class="sending && 'animate-spin'"
+                />
+              </button>
+            </form>
+            <p
+              v-if="detail.canReply && !detail.whatsappLive"
+              class="mt-1.5 px-2 text-[11px] text-shell-muted"
+            >
+              WhatsApp is in test mode — replies are saved here but not delivered.
+            </p>
           </footer>
         </template>
 

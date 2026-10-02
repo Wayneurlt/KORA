@@ -22,7 +22,9 @@ watch([search, className, status], () => {
   page.value = 1
 })
 
-const { data: students, status: studentsStatus } = await useFetch('/api/students', {
+const { canManage } = usePermissions()
+
+const { data: students, status: studentsStatus, refresh: refreshStudents } = await useFetch('/api/students', {
   query: { search, className, status, page }
 })
 
@@ -48,7 +50,7 @@ watch([parentSearch, verification], () => {
   parentPage.value = 1
 })
 
-const { data: parents, status: parentsStatus } = await useFetch('/api/parents', {
+const { data: parents, status: parentsStatus, refresh: refreshParents } = await useFetch('/api/parents', {
   query: { search: parentSearch, verification, page: parentPage }
 })
 
@@ -70,6 +72,38 @@ function openStudent(id: string) {
   selectedId.value = id
   panelOpen.value = true
 }
+
+// Forms ------------------------------------------------------------------
+const studentFormOpen = ref(false)
+const parentFormOpen = ref(false)
+const editingParent = ref<NonNullable<typeof parents.value>['items'][number] | null>(null)
+
+function addParent() {
+  editingParent.value = null
+  parentFormOpen.value = true
+}
+
+function editParent(parent: NonNullable<typeof parents.value>['items'][number]) {
+  editingParent.value = parent
+  parentFormOpen.value = true
+}
+
+async function refreshAll() {
+  await Promise.all([refreshStudents(), refreshParents()])
+}
+
+async function onStudentCreated(id: string) {
+  await refreshStudents()
+  openStudent(id)
+}
+
+// The dashboard's "Add Student" button links here with ?new=1.
+onMounted(() => {
+  if (route.query.new && canManage('students')) {
+    studentFormOpen.value = true
+    router.replace({ query: { ...route.query, new: undefined } })
+  }
+})
 </script>
 
 <template>
@@ -79,6 +113,18 @@ function openStudent(id: string) {
       :description="(route.meta.description as string)"
     >
       <template #actions>
+        <button
+          v-if="canManage('students')"
+          type="button"
+          class="bg-leaf-gradient flex h-11 items-center gap-2 rounded-full px-5 text-sm font-medium text-white transition-opacity hover:opacity-90"
+          @click="tab === 'students' ? (studentFormOpen = true) : addParent()"
+        >
+          <UIcon
+            name="i-lucide-plus"
+            class="size-4.5"
+          />
+          {{ tab === 'students' ? 'Add student' : 'Add parent' }}
+        </button>
         <DataFilterPills
           v-model="tab"
           label="Show"
@@ -268,7 +314,21 @@ function openStudent(id: string) {
             <span class="row-start-1 justify-self-end md:row-auto md:justify-self-start">
               <DataChip :status="parent.verificationStatus" />
             </span>
-            <span class="hidden text-sm text-shell-muted md:block">{{ formatRelative(parent.lastMessageAt) }}</span>
+            <span class="hidden items-center justify-between gap-2 text-sm text-shell-muted md:flex">
+              {{ formatRelative(parent.lastMessageAt) }}
+              <button
+                v-if="canManage('students')"
+                type="button"
+                class="flex size-8 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-shell-panel hover:text-leaf-800"
+                :aria-label="`Edit ${parent.name}`"
+                @click="editParent(parent)"
+              >
+                <UIcon
+                  name="i-lucide-pencil"
+                  class="size-4"
+                />
+              </button>
+            </span>
           </li>
         </ul>
 
@@ -293,6 +353,17 @@ function openStudent(id: string) {
     <StudentPanel
       v-model:open="panelOpen"
       :student-id="selectedId"
+      @changed="refreshAll"
+    />
+
+    <StudentsStudentFormModal
+      v-model:open="studentFormOpen"
+      @saved="onStudentCreated"
+    />
+    <StudentsParentFormModal
+      v-model:open="parentFormOpen"
+      :parent="editingParent"
+      @saved="refreshAll"
     />
   </div>
 </template>

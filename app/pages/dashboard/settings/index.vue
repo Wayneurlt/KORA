@@ -436,5 +436,9 @@ const sections = [
         </div>
       </aside>
     </div>
+
+    <div class="mt-2.5">
+      <SettingsWhatsAppCard />
+    </div>
   </div>
 </template>

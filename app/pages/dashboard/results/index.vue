@@ -16,7 +16,10 @@ const examId = ref('')
 const className = ref('')
 const search = ref('')
 
-const { data, status } = await useFetch('/api/results', {
+const { canManage } = usePermissions()
+const toast = useToast()
+
+const { data, status, refresh } = await useFetch('/api/results', {
   query: { examId, className, search }
 })
 
@@ -55,6 +58,47 @@ function openStudent(id: string) {
   panelOpen.value = true
 }
 
+const examFormOpen = ref(false)
+const statusChange = ref<'PUBLISHED' | 'DRAFT' | 'ARCHIVED' | null>(null)
+const changingStatus = ref(false)
+const statusError = ref('')
+
+const statusOpen = computed({
+  get: () => !!statusChange.value,
+  set: (value: boolean) => {
+    if (!value) statusChange.value = null
+  }
+})
+
+const statusCopy = computed(() => {
+  const name = data.value?.exam?.name ?? 'this exam'
+  if (statusChange.value === 'PUBLISHED') return { title: `Publish ${name}?`, description: 'Parents can then see these results by replying RESULTS on WhatsApp.', label: 'Publish results' }
+  if (statusChange.value === 'DRAFT') return { title: `Unpublish ${name}?`, description: 'Parents will stop seeing these results until you publish again.', label: 'Move to draft' }
+  return { title: `Archive ${name}?`, description: 'It disappears from the exam list and can no longer be edited.', label: 'Archive exam' }
+})
+
+async function applyStatus() {
+  if (!data.value?.exam || !statusChange.value) return
+  changingStatus.value = true
+  statusError.value = ''
+  try {
+    await $fetch(`/api/exams/${data.value.exam.id}`, { method: 'PATCH', body: { status: statusChange.value } })
+    toast.add({ title: statusChange.value === 'PUBLISHED' ? 'Results published' : statusChange.value === 'DRAFT' ? 'Moved back to draft' : 'Exam archived', color: 'success' })
+    if (statusChange.value === 'ARCHIVED') examId.value = ''
+    statusChange.value = null
+    await refresh()
+  } catch (error) {
+    statusError.value = apiErrorMessage(error)
+  } finally {
+    changingStatus.value = false
+  }
+}
+
+async function onExamCreated(id: string) {
+  examId.value = id
+  await refresh()
+}
+
 function scoreClass(score: number | undefined) {
   if (score === undefined) return 'text-shell-muted'
   if (score >= 80) return 'text-leaf-700 dark:text-leaf-400 font-medium'
@@ -70,6 +114,30 @@ function scoreClass(score: number | undefined) {
       :description="(route.meta.description as string)"
     >
       <template #actions>
+        <template v-if="canManage('results')">
+          <button
+            type="button"
+            class="flex h-11 items-center gap-2 rounded-full border-[1.5px] border-leaf-800 px-5 text-sm font-medium text-leaf-900 transition-colors hover:bg-leaf-50 dark:border-leaf-400 dark:text-leaf-200 dark:hover:bg-leaf-900/40"
+            @click="examFormOpen = true"
+          >
+            <UIcon
+              name="i-lucide-plus"
+              class="size-4.5"
+            />
+            New exam
+          </button>
+          <NuxtLink
+            v-if="data?.exam"
+            :to="{ path: '/dashboard/results/entry', query: { examId: data.exam.id, className: className || undefined } }"
+            class="bg-leaf-gradient flex h-11 items-center gap-2 rounded-full px-5 text-sm font-medium text-white transition-opacity hover:opacity-90"
+          >
+            <UIcon
+              name="i-lucide-table-2"
+              class="size-4.5"
+            />
+            Enter scores
+          </NuxtLink>
+        </template>
         <DataSelect
           v-if="examOptions.length"
           v-model="examId"
@@ -102,7 +170,43 @@ function scoreClass(score: number | undefined) {
           <p class="text-base font-medium tracking-[-0.01em]">
             Subject averages
           </p>
-          <DataChip :status="data.exam.status" />
+          <div class="flex items-center gap-2">
+            <DataChip :status="data.exam.status" />
+            <template v-if="canManage('results')">
+              <button
+                v-if="data.exam.status === 'DRAFT'"
+                type="button"
+                class="bg-leaf-gradient flex h-8 items-center gap-1.5 rounded-full px-3.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                @click="statusChange = 'PUBLISHED'"
+              >
+                <UIcon
+                  name="i-lucide-send"
+                  class="size-3.5"
+                />
+                Publish to parents
+              </button>
+              <button
+                v-else
+                type="button"
+                class="flex h-8 items-center rounded-full bg-shell-panel px-3.5 text-xs font-medium transition-colors hover:text-leaf-800"
+                @click="statusChange = 'DRAFT'"
+              >
+                Unpublish
+              </button>
+              <button
+                type="button"
+                class="flex size-8 items-center justify-center rounded-full bg-shell-panel text-shell-muted transition-colors hover:text-shell-ink"
+                aria-label="Archive exam"
+                title="Archive exam"
+                @click="statusChange = 'ARCHIVED'"
+              >
+                <UIcon
+                  name="i-lucide-archive"
+                  class="size-3.5"
+                />
+              </button>
+            </template>
+          </div>
         </div>
         <div class="mt-4 grid gap-x-8 gap-y-3 sm:grid-cols-2">
           <div
@@ -230,6 +334,20 @@ function scoreClass(score: number | undefined) {
       v-model:open="panelOpen"
       :student-id="selectedId"
       focus="results"
+    />
+
+    <ResultsExamFormModal
+      v-model:open="examFormOpen"
+      @saved="onExamCreated"
+    />
+    <FormModal
+      v-model:open="statusOpen"
+      :title="statusCopy.title"
+      :description="statusCopy.description"
+      :submit-label="statusCopy.label"
+      :loading="changingStatus"
+      :error="statusError"
+      @submit="applyStatus"
     />
   </div>
 </template>

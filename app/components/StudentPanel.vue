@@ -9,6 +9,10 @@ const props = defineProps<{
   focus?: 'fees' | 'results'
 }>()
 
+const emit = defineEmits<{ changed: [] }>()
+const { canManage } = usePermissions()
+const toast = useToast()
+
 type StudentDetail = Awaited<ReturnType<typeof fetchStudent>>
 
 function fetchStudent(id: string) {
@@ -33,6 +37,66 @@ watch(() => [props.studentId, open.value] as const, async ([id, isOpen]) => {
     loading.value = false
   }
 }, { immediate: true })
+
+async function reload() {
+  if (!props.studentId) return
+  try {
+    student.value = await fetchStudent(props.studentId)
+  } catch {
+    // keep showing the last loaded copy
+  }
+  emit('changed')
+}
+
+// Actions --------------------------------------------------------------
+const editOpen = ref(false)
+const linkOpen = ref(false)
+const newParentOpen = ref(false)
+const paymentOpen = ref(false)
+const unlinkTarget = ref<{ id: string, name: string } | null>(null)
+const unlinking = ref(false)
+const unlinkError = ref('')
+const updatingPayment = ref<string | null>(null)
+
+const unlinkOpen = computed({
+  get: () => !!unlinkTarget.value,
+  set: (value: boolean) => {
+    if (!value) unlinkTarget.value = null
+  }
+})
+
+async function unlink() {
+  if (!unlinkTarget.value || !student.value) return
+  unlinking.value = true
+  unlinkError.value = ''
+  try {
+    await $fetch(`/api/students/${student.value.id}/parents/${unlinkTarget.value.id}`, { method: 'DELETE' })
+    toast.add({ title: 'Parent unlinked', color: 'success' })
+    unlinkTarget.value = null
+    await reload()
+  } catch (error) {
+    unlinkError.value = apiErrorMessage(error)
+  } finally {
+    unlinking.value = false
+  }
+}
+
+async function setPaymentStatus(id: string, next: 'COMPLETED' | 'FAILED') {
+  updatingPayment.value = id
+  try {
+    await $fetch(`/api/payments/${id}`, { method: 'PATCH', body: { status: next } })
+    toast.add({ title: next === 'COMPLETED' ? 'Payment confirmed' : 'Payment marked as failed', color: next === 'COMPLETED' ? 'success' : 'neutral' })
+    await reload()
+  } catch (error) {
+    toast.add({ title: apiErrorMessage(error), color: 'error' })
+  } finally {
+    updatingPayment.value = null
+  }
+}
+
+const unlinkDescription = computed(() => unlinkTarget.value
+  ? `${unlinkTarget.value.name} will no longer see results or fees for ${name.value} on WhatsApp. The parent record is kept.`
+  : undefined)
 
 const name = computed(() => (student.value ? `${student.value.firstName} ${student.value.lastName}` : 'Student'))
 const paidPercent = computed(() => {
@@ -72,6 +136,18 @@ const sections = computed(() => (props.focus === 'results' ? ['results', 'fees']
             <span>{{ student.className }}{{ student.stream ? ` · ${student.stream}` : '' }}</span>
             <DataChip :status="student.status" />
           </div>
+          <button
+            v-if="canManage('students')"
+            type="button"
+            class="mt-2.5 flex h-8 items-center gap-1.5 rounded-full bg-shell-card px-3.5 text-xs font-medium transition-colors hover:text-leaf-800"
+            @click="editOpen = true"
+          >
+            <UIcon
+              name="i-lucide-pencil"
+              class="size-3.5"
+            />
+            Edit details
+          </button>
         </div>
       </div>
       <div
@@ -107,9 +183,23 @@ const sections = computed(() => (props.focus === 'results' ? ['results', 'fees']
     <template v-else-if="student">
       <!-- Parents -->
       <section class="rounded-[20px] bg-shell-card p-4">
-        <p class="text-base font-medium tracking-[-0.01em]">
-          Parents & guardians
-        </p>
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-base font-medium tracking-[-0.01em]">
+            Parents & guardians
+          </p>
+          <button
+            v-if="canManage('students')"
+            type="button"
+            class="flex h-7 items-center gap-1 rounded-full border border-leaf-800 px-2.5 text-[11px] font-medium text-leaf-900 transition-colors hover:bg-leaf-50 dark:border-leaf-400 dark:text-leaf-200 dark:hover:bg-leaf-900/40"
+            @click="linkOpen = true"
+          >
+            <UIcon
+              name="i-lucide-plus"
+              class="size-3"
+            />
+            Link parent
+          </button>
+        </div>
         <ul
           v-if="student.parents.length"
           class="mt-3 space-y-2"
@@ -143,6 +233,18 @@ const sections = computed(() => (props.focus === 'results' ? ['results', 'fees']
               </a>
             </div>
             <DataChip :status="parent.verificationStatus" />
+            <button
+              v-if="canManage('students')"
+              type="button"
+              class="flex size-8 shrink-0 items-center justify-center rounded-full text-shell-muted transition-colors hover:bg-shell-card hover:text-[#B91C1C]"
+              :aria-label="`Unlink ${parent.name}`"
+              @click="unlinkTarget = { id: parent.id, name: parent.name }"
+            >
+              <UIcon
+                name="i-lucide-unlink"
+                class="size-4"
+              />
+            </button>
           </li>
         </ul>
         <p
@@ -174,7 +276,21 @@ const sections = computed(() => (props.focus === 'results' ? ['results', 'fees']
                 Balance of {{ formatMoney(student.fees.summary.billed) }} billed
               </p>
             </div>
-            <DataChip :status="student.fees.summary.status" />
+            <div class="flex flex-col items-end gap-2">
+              <DataChip :status="student.fees.summary.status" />
+              <button
+                v-if="canManage('fees')"
+                type="button"
+                class="bg-leaf-gradient flex h-8 items-center gap-1.5 rounded-full px-3.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                @click="paymentOpen = true"
+              >
+                <UIcon
+                  name="i-lucide-plus"
+                  class="size-3.5"
+                />
+                Record payment
+              </button>
+            </div>
           </div>
 
           <div class="mt-4 flex h-2.5 overflow-hidden rounded-full bg-hatch">
@@ -245,12 +361,35 @@ const sections = computed(() => (props.focus === 'results' ? ['results', 'fees']
                     {{ formatDateTime(payment.date) }}
                   </p>
                 </div>
-                <div class="flex shrink-0 items-center gap-2">
-                  <DataChip
-                    v-if="payment.status !== 'COMPLETED'"
-                    :status="payment.status"
-                  />
-                  <span class="font-medium">{{ formatMoney(payment.amount) }}</span>
+                <div class="flex shrink-0 flex-col items-end gap-1">
+                  <div class="flex items-center gap-2">
+                    <DataChip
+                      v-if="payment.status !== 'COMPLETED'"
+                      :status="payment.status"
+                    />
+                    <span class="font-medium">{{ formatMoney(payment.amount) }}</span>
+                  </div>
+                  <div
+                    v-if="payment.status === 'PENDING' && canManage('fees')"
+                    class="flex gap-1"
+                  >
+                    <button
+                      type="button"
+                      class="h-6 rounded-full bg-leaf-800 px-2.5 text-[10px] font-medium text-white disabled:opacity-50 dark:bg-leaf-600"
+                      :disabled="updatingPayment === payment.id"
+                      @click="setPaymentStatus(payment.id, 'COMPLETED')"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      type="button"
+                      class="h-6 rounded-full px-2.5 text-[10px] font-medium text-shell-muted hover:text-[#B91C1C] disabled:opacity-50"
+                      :disabled="updatingPayment === payment.id"
+                      @click="setPaymentStatus(payment.id, 'FAILED')"
+                    >
+                      Reject
+                    </button>
+                  </div>
                 </div>
               </li>
             </ul>
@@ -316,6 +455,41 @@ const sections = computed(() => (props.focus === 'results' ? ['results', 'fees']
           </div>
         </section>
       </template>
+    </template>
+    <template v-if="student">
+      <StudentsStudentFormModal
+        v-model:open="editOpen"
+        :student="student"
+        @saved="reload"
+      />
+      <StudentsLinkParentModal
+        v-model:open="linkOpen"
+        :student-id="student.id"
+        :student-name="name"
+        :linked-ids="student.parents.map(parent => parent.id)"
+        @saved="reload"
+        @create-new="newParentOpen = true"
+      />
+      <StudentsParentFormModal
+        v-model:open="newParentOpen"
+        :link-student="{ id: student.id, label: name }"
+        @saved="reload"
+      />
+      <FeesRecordPaymentModal
+        v-model:open="paymentOpen"
+        :student="{ id: student.id, label: name }"
+        @saved="reload"
+      />
+      <FormModal
+        v-model:open="unlinkOpen"
+        title="Unlink parent?"
+        :description="unlinkDescription"
+        submit-label="Unlink"
+        danger
+        :loading="unlinking"
+        :error="unlinkError"
+        @submit="unlink"
+      />
     </template>
   </DataPanel>
 </template>

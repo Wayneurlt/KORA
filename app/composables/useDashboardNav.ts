@@ -16,6 +16,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Fees', to: '/dashboard/fees', icon: 'i-lucide-wallet', section: 'fees' },
   { label: 'Announcements', to: '/dashboard/announcements', icon: 'i-lucide-megaphone', section: 'announcements' },
   { label: 'Conversations', to: '/dashboard/conversations', icon: 'i-lucide-message-circle', section: 'conversations', badge: 'openConversations' },
+  { label: 'Staff', to: '/dashboard/staff', icon: 'i-lucide-user-cog', section: 'staff' },
   { label: 'Settings', to: '/dashboard/settings', icon: 'i-lucide-settings', section: 'settings' }
 ]
 

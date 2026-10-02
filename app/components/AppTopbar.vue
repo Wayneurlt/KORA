@@ -95,9 +95,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         </template>
       </ClientOnly>
 
-      <div
+      <NuxtLink
         v-if="user"
-        class="ml-1 flex items-center gap-2.5"
+        to="/dashboard/account"
+        class="ml-1 flex items-center gap-2.5 rounded-full transition-opacity hover:opacity-80"
+        aria-label="My account"
       >
         <div class="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#F4B9A8] text-sm font-semibold text-[#7A2E1B]">
           {{ initials }}
@@ -110,7 +112,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             {{ user.email }}
           </p>
         </div>
-      </div>
+      </NuxtLink>
     </div>
 
     <UModal
