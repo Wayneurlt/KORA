@@ -64,7 +64,7 @@ async function copyWebhook() {
             WhatsApp connection
           </p>
           <p class="mt-1 text-xs leading-relaxed text-shell-muted">
-            Set in the server's environment variables — see the README for the Meta setup steps.
+            Sent through SendPulse. Keys are set in the server's environment variables — see the README.
           </p>
         </div>
         <DataChip
@@ -78,7 +78,14 @@ async function copyWebhook() {
         v-if="status && !status.live"
         class="mt-4 rounded-2xl bg-[#FEF3C7] px-4 py-3 text-[13px] text-[#92400E] dark:bg-[#B45309]/15 dark:text-[#FCD34D]"
       >
-        No WhatsApp credentials yet, so messages are logged on the server instead of being sent. Everything else — the bot, announcements, inbox replies — works normally for testing.
+        No SendPulse keys yet, so messages are logged on the server instead of being sent. Everything else — the bot, announcements, inbox replies — works normally for testing.
+      </p>
+
+      <p
+        v-if="status && !status.webhookSecretSet"
+        class="mt-3 rounded-2xl bg-shell-panel px-4 py-3 text-[13px] text-shell-muted"
+      >
+        Set <code>SENDPULSE_WEBHOOK_SECRET</code> before connecting SendPulse — it's added to the webhook URL so only SendPulse can post messages to Kora.
       </p>
 
       <dl
@@ -86,7 +93,7 @@ async function copyWebhook() {
         class="mt-4 divide-y divide-shell-line text-sm"
       >
         <div class="flex items-center justify-between gap-3 py-2.5">
-          <dt class="text-shell-muted">
+          <dt class="shrink-0 text-shell-muted">
             Webhook URL
           </dt>
           <dd class="flex min-w-0 items-center gap-1.5">
@@ -106,10 +113,10 @@ async function copyWebhook() {
         </div>
         <div
           v-for="row in [
-            { label: 'Phone number ID', ok: !!status.phoneNumberId, value: status.phoneNumberId ?? 'Not set' },
-            { label: 'Access token', ok: status.live, value: status.live ? 'Set' : 'Not set' },
-            { label: 'Verify token', ok: status.verifyTokenSet, value: status.verifyTokenSet ? 'Set' : 'Not set' },
-            { label: 'App secret (signature check)', ok: status.appSecretSet, value: status.appSecretSet ? 'Set' : 'Not set' },
+            { label: 'API client ID', ok: status.clientIdSet, value: status.clientIdSet ? 'Set' : 'Not set' },
+            { label: 'API client secret', ok: status.clientSecretSet, value: status.clientSecretSet ? 'Set' : 'Not set' },
+            { label: 'WhatsApp bot ID', ok: !!status.botId, value: status.botId ?? 'Not set' },
+            { label: 'Webhook secret', ok: status.webhookSecretSet, value: status.webhookSecretSet ? 'Set' : 'Not set' },
             { label: 'Announcement template', ok: !!status.announcementTemplate, value: status.announcementTemplate ? `${status.announcementTemplate} (${status.templateLanguage})` : 'Not set — sends plain text' }
           ]"
           :key="row.label"

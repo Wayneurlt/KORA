@@ -86,11 +86,16 @@ async function runConfirmed() {
   const id = selected.value.id
   try {
     if (confirm.value === 'publish') {
-      const result = await $fetch(`/api/announcements/${id}/publish`, { method: 'POST' })
+      const first = await $fetch(`/api/announcements/${id}/publish`, { method: 'POST' })
+      confirm.value = null
+      await refresh()
+      const total = await sendRemaining(id, first)
       toast.add({
-        title: `Sent to ${result.sent} of ${result.audience} parents`,
-        description: result.simulated ? 'WhatsApp is in test mode — nothing left the server.' : result.failed ? `${result.failed} failed — you can retry from the announcement.` : undefined,
-        color: result.failed ? 'warning' : 'success'
+        title: `Sent to ${total.sent} of ${first.audience} parents`,
+        description: first.simulated
+          ? 'WhatsApp is in test mode — nothing left the server.'
+          : total.failed ? `${total.failed} failed — you can retry from the announcement.` : total.remaining ? 'Sending paused — open the announcement to continue.' : undefined,
+        color: total.failed || total.remaining ? 'warning' : 'success'
       })
     } else if (confirm.value === 'delete') {
       await $fetch(`/api/announcements/${id}`, { method: 'DELETE' })
@@ -109,13 +114,53 @@ async function runConfirmed() {
   }
 }
 
+// Sending happens in batches (serverless time limits): keep asking the server
+// for the next batch until nothing is left, showing progress as we go.
+const progress = ref<{ id: string, done: number, total: number } | null>(null)
+
+async function sendRemaining(id: string, first: { sent: number, failed: number, remaining: number }) {
+  let sent = first.sent
+  let failed = first.failed
+  let remaining = first.remaining
+  progress.value = { id, done: sent + failed, total: sent + failed + remaining }
+  try {
+    while (remaining > 0) {
+      const batch = await $fetch(`/api/announcements/${id}/deliver`, { method: 'POST' })
+      sent += batch.sent
+      failed += batch.failed
+      // Another tab is sending the rest — stop and let it finish.
+      if (batch.sent + batch.failed === 0 && batch.remaining === remaining) break
+      remaining = batch.remaining
+      progress.value = { id, done: sent + failed, total: sent + failed + remaining }
+      await refresh()
+    }
+  } catch (error) {
+    toast.add({ title: apiErrorMessage(error, 'Sending stopped.'), description: 'Open the announcement and choose Continue sending.', color: 'error' })
+  } finally {
+    progress.value = null
+    await refresh()
+  }
+  return { sent, failed, remaining }
+}
+
+async function continueSending() {
+  if (!selected.value?.delivery) return
+  working.value = true
+  try {
+    const total = await sendRemaining(selected.value.id, { sent: 0, failed: 0, remaining: selected.value.delivery.pending })
+    toast.add({ title: `Sent ${total.sent} more`, description: total.failed ? `${total.failed} failed` : undefined, color: total.failed ? 'warning' : 'success' })
+  } finally {
+    working.value = false
+  }
+}
+
 async function resendFailed() {
   if (!selected.value) return
   working.value = true
   try {
-    const result = await $fetch(`/api/announcements/${selected.value.id}/resend`, { method: 'POST' })
-    toast.add({ title: `Retried ${result.audience}: ${result.sent} sent, ${result.failed} failed`, color: result.failed ? 'warning' : 'success' })
-    await refresh()
+    const first = await $fetch(`/api/announcements/${selected.value.id}/resend`, { method: 'POST' })
+    const total = await sendRemaining(selected.value.id, first)
+    toast.add({ title: `Retried ${first.retried}: ${total.sent} sent, ${total.failed} failed`, color: total.failed ? 'warning' : 'success' })
   } catch (error) {
     toast.add({ title: apiErrorMessage(error), color: 'error' })
   } finally {
@@ -350,12 +395,32 @@ onMounted(() => {
           <p class="text-base font-medium tracking-[-0.01em]">
             Delivery
           </p>
-          <div class="mt-3 grid grid-cols-4 gap-2 text-center">
+          <div
+            v-if="progress?.id === selected.id"
+            class="mt-3"
+          >
+            <div class="flex items-center justify-between text-xs text-shell-muted">
+              <span class="flex items-center gap-1.5">
+                <UIcon
+                  name="i-lucide-loader-circle"
+                  class="size-3.5 animate-spin"
+                />
+                Sending…
+              </span>
+              <span>{{ progress.done }} of {{ progress.total }}</span>
+            </div>
+            <div class="mt-1.5 h-2 overflow-hidden rounded-full bg-shell-panel">
+              <div
+                class="bg-leaf-gradient h-full rounded-full transition-[width]"
+                :style="{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }"
+              />
+            </div>
+          </div>
+          <div class="mt-3 grid grid-cols-3 gap-2 text-center">
             <div
               v-for="stat in [
                 { label: 'Sent', value: selected.delivery.sent },
-                { label: 'Delivered', value: selected.delivery.delivered },
-                { label: 'Read', value: selected.delivery.read },
+                { label: 'Waiting', value: selected.delivery.pending },
                 { label: 'Failed', value: selected.delivery.failed }
               ]"
               :key="stat.label"
@@ -373,8 +438,21 @@ onMounted(() => {
             </div>
           </div>
           <p class="mt-3 text-[11px] text-shell-muted">
-            Out of {{ selected.delivery.total }} parents. Delivered and read update as WhatsApp reports back.
+            Out of {{ selected.delivery.total }} parents. "Sent" means SendPulse accepted the message; failures reported later by WhatsApp move to "Failed".
           </p>
+          <button
+            v-if="selected.delivery.pending && progress?.id !== selected.id && canManage('announcements')"
+            type="button"
+            class="bg-leaf-gradient mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-full text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+            :disabled="working"
+            @click="continueSending"
+          >
+            <UIcon
+              name="i-lucide-play"
+              class="size-4"
+            />
+            Continue sending to {{ selected.delivery.pending }} {{ selected.delivery.pending === 1 ? 'parent' : 'parents' }}
+          </button>
         </section>
 
         <section class="rounded-[20px] bg-shell-card p-4">

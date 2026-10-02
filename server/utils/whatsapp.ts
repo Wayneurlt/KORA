@@ -1,35 +1,38 @@
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
+import { randomUUID, timingSafeEqual } from 'node:crypto'
 
-// Thin client for the Meta WhatsApp Cloud API.
+// WhatsApp messaging through SendPulse (https://sendpulse.com/integrations/api/chatbot/whatsapp).
 //
-// When WHATSAPP_ACCESS_TOKEN / WHATSAPP_PHONE_NUMBER_ID are not set, sends run in
-// *test mode*: nothing leaves the server, the message is logged and reported as
-// sent with a "sim_" id. That keeps the whole flow testable locally.
+// When SENDPULSE_CLIENT_ID / SENDPULSE_CLIENT_SECRET / SENDPULSE_BOT_ID are not set,
+// sends run in *test mode*: nothing leaves the server, the message is logged and
+// reported as sent with a "sim_" id. That keeps the whole flow testable locally.
+
+const API_BASE = 'https://api.sendpulse.com'
+
+// SendPulse caps text messages at 1024 characters; leave a little headroom.
+export const TEXT_LIMIT = 1000
 
 export interface WhatsAppConfig {
-  apiUrl: string
-  accessToken: string
-  phoneNumberId: string
-  verifyToken: string
-  appSecret: string
+  clientId: string
+  clientSecret: string
+  botId: string
+  webhookSecret: string
   announcementTemplate: string
   templateLanguage: string
 }
 
 export function getWhatsAppConfig(): WhatsAppConfig {
   return {
-    apiUrl: (process.env.WHATSAPP_API_URL || 'https://graph.facebook.com/v21.0').replace(/\/$/, ''),
-    accessToken: process.env.WHATSAPP_ACCESS_TOKEN || '',
-    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
-    verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || '',
-    appSecret: process.env.WHATSAPP_APP_SECRET || '',
+    clientId: process.env.SENDPULSE_CLIENT_ID || '',
+    clientSecret: process.env.SENDPULSE_CLIENT_SECRET || '',
+    botId: process.env.SENDPULSE_BOT_ID || '',
+    webhookSecret: process.env.SENDPULSE_WEBHOOK_SECRET || '',
     announcementTemplate: process.env.WHATSAPP_ANNOUNCEMENT_TEMPLATE || '',
     templateLanguage: process.env.WHATSAPP_TEMPLATE_LANGUAGE || 'en'
   }
 }
 
 export function isWhatsAppLive(config = getWhatsAppConfig()) {
-  return !!(config.accessToken && config.phoneNumberId)
+  return !!(config.clientId && config.clientSecret && config.botId)
 }
 
 export interface SendResult {
@@ -37,76 +40,130 @@ export interface SendResult {
   providerMessageId: string | null
   simulated: boolean
   error?: string
-  /** Meta error code, e.g. 131047 = outside the 24-hour customer service window */
-  errorCode?: number
 }
 
-interface GraphResponse {
-  messages?: { id: string }[]
-  error?: { message?: string, code?: number, error_data?: { details?: string } }
+// Access tokens last about an hour; cache per server instance.
+let token: { value: string, expiresAt: number } | null = null
+
+async function getAccessToken(config: WhatsAppConfig, force = false) {
+  if (!force && token && Date.now() < token.expiresAt - 60_000) return token.value
+  const data = await $fetch<{ access_token: string, expires_in?: number }>(`${API_BASE}/oauth/access_token`, {
+    method: 'POST',
+    body: { grant_type: 'client_credentials', client_id: config.clientId, client_secret: config.clientSecret },
+    timeout: 15_000
+  })
+  token = { value: data.access_token, expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000 }
+  return token.value
 }
 
-async function send(to: string, payload: Record<string, unknown>, preview: string): Promise<SendResult> {
+interface SendPulseResponse {
+  success?: boolean
+  data?: { id?: string, message_id?: string } | null
+  id?: string
+  message?: string
+  errors?: Record<string, unknown> | string[]
+}
+
+async function post(path: string, body: Record<string, unknown>, preview: string): Promise<SendResult> {
   const config = getWhatsAppConfig()
 
   if (!isWhatsAppLive(config)) {
-    console.info(`[whatsapp:test-mode] → +${to}: ${preview.replace(/\s+/g, ' ').slice(0, 160)}`)
+    console.info(`[whatsapp:test-mode] → +${String(body.phone)}: ${preview.replace(/\s+/g, ' ').slice(0, 160)}`)
     return { ok: true, providerMessageId: `sim_${randomUUID()}`, simulated: true }
   }
 
   try {
-    const response = await $fetch.raw<GraphResponse>(`${config.apiUrl}/${config.phoneNumberId}/messages`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${config.accessToken}` },
-      body: { messaging_product: 'whatsapp', recipient_type: 'individual', to, ...payload },
-      ignoreResponseError: true,
-      timeout: 15_000
-    })
+    let response = await request(config, path, body, false)
+    // Token revoked or expired early — refresh once and retry.
+    if (response.status === 401) response = await request(config, path, body, true)
+
     const data = response._data
-    const providerMessageId = data?.messages?.[0]?.id ?? null
-    if (response.ok && providerMessageId) {
-      return { ok: true, providerMessageId, simulated: false }
+    if (response.ok && data?.success !== false) {
+      return { ok: true, providerMessageId: data?.data?.id ?? data?.data?.message_id ?? data?.id ?? null, simulated: false }
     }
-    const error = data?.error
-    return {
-      ok: false,
-      providerMessageId: null,
-      simulated: false,
-      error: error?.error_data?.details || error?.message || `WhatsApp API error (${response.status})`,
-      errorCode: error?.code
-    }
+    const detail = data?.message || (Array.isArray(data?.errors) ? data.errors.join(', ') : data?.errors ? JSON.stringify(data.errors) : '')
+    return { ok: false, providerMessageId: null, simulated: false, error: detail || `SendPulse error (${response.status})` }
   } catch (error) {
-    return { ok: false, providerMessageId: null, simulated: false, error: (error as Error).message || 'Could not reach WhatsApp' }
+    return { ok: false, providerMessageId: null, simulated: false, error: (error as Error).message || 'Could not reach SendPulse' }
   }
 }
 
-export function sendWhatsAppText(to: string, body: string) {
-  return send(to, { type: 'text', text: { body: body.slice(0, 4096), preview_url: false } }, body)
+async function request(config: WhatsAppConfig, path: string, body: Record<string, unknown>, refreshToken: boolean) {
+  const accessToken = await getAccessToken(config, refreshToken)
+  return $fetch.raw<SendPulseResponse>(`${API_BASE}/whatsapp${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: { bot_id: config.botId, ...body },
+    ignoreResponseError: true,
+    timeout: 15_000
+  })
+}
+
+/**
+ * Splits text into chunks under the SendPulse limit, preferring paragraph,
+ * then line, then word boundaries.
+ */
+export function splitMessage(text: string, limit = TEXT_LIMIT): string[] {
+  const chunks: string[] = []
+  let rest = text.trim()
+  while (rest.length > limit) {
+    const window = rest.slice(0, limit)
+    const cut = [window.lastIndexOf('\n\n'), window.lastIndexOf('\n'), window.lastIndexOf(' ')]
+      .find(index => index > limit * 0.5) ?? limit
+    chunks.push(rest.slice(0, cut).trim())
+    rest = rest.slice(cut).trim()
+  }
+  if (rest) chunks.push(rest)
+  return chunks
+}
+
+/** Sends a text, split into several messages if it's longer than SendPulse allows. */
+export async function sendWhatsAppText(to: string, body: string): Promise<SendResult> {
+  let last: SendResult = { ok: false, providerMessageId: null, simulated: false, error: 'Empty message' }
+  for (const chunk of splitMessage(body)) {
+    last = await post('/contacts/sendByPhone', { phone: to, message: { type: 'text', text: { body: chunk } } }, chunk)
+    if (!last.ok) return last
+  }
+  return last
+}
+
+/**
+ * WhatsApp rejects template parameters containing new lines, tabs or more than
+ * four consecutive spaces, so paragraphs are joined with a separator.
+ */
+export function templateParam(text: string) {
+  return text
+    .replace(/\s*\n+\s*/g, ' · ')
+    .replace(/\t/g, ' ')
+    .replace(/ {4,}/g, '   ')
+    .trim()
+    .slice(0, 1024)
 }
 
 export function sendWhatsAppTemplate(to: string, name: string, params: string[], language = getWhatsAppConfig().templateLanguage) {
-  return send(to, {
-    type: 'template',
+  return post('/contacts/sendTemplateByPhone', {
+    phone: to,
     template: {
       name,
       language: { code: language },
       components: params.length
-        ? [{ type: 'body', parameters: params.map(text => ({ type: 'text', text: text.slice(0, 1024) })) }]
+        ? [{ type: 'body', parameters: params.map(text => ({ type: 'text', text: templateParam(text) })) }]
         : []
     }
   }, `[template ${name}] ${params.join(' | ')}`)
 }
 
 /**
- * Verifies Meta's X-Hub-Signature-256 header against the raw request body.
- * Without WHATSAPP_APP_SECRET the check is skipped outside production only.
+ * SendPulse doesn't sign webhooks, so the webhook URL carries a secret token
+ * (…/api/whatsapp/webhook?token=…). Without SENDPULSE_WEBHOOK_SECRET the check
+ * is skipped outside production only.
  */
-export function verifyWebhookSignature(rawBody: string, signatureHeader: string | undefined, appSecret = getWhatsAppConfig().appSecret) {
-  if (!appSecret) return process.env.NODE_ENV !== 'production'
-  if (!signatureHeader?.startsWith('sha256=')) return false
-  const expected = Buffer.from(createHmac('sha256', appSecret).update(rawBody, 'utf8').digest('hex'))
-  const received = Buffer.from(signatureHeader.slice('sha256='.length))
-  return expected.length === received.length && timingSafeEqual(expected, received)
+export function verifyWebhookToken(provided: string | undefined, secret = getWhatsAppConfig().webhookSecret) {
+  if (!secret) return process.env.NODE_ENV !== 'production'
+  if (!provided) return false
+  const a = Buffer.from(provided)
+  const b = Buffer.from(secret)
+  return a.length === b.length && timingSafeEqual(a, b)
 }
 
 /** True when the parent wrote to us within the last 24 hours (free-form replies allowed). */

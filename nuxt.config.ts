@@ -29,6 +29,14 @@ export default defineNuxtConfig({
 
   compatibilityDate: '2026-06-30',
 
+  nitro: {
+    // Vercel: announcement sending runs in ~20s batches, so allow a 60s function
+    // limit (the Hobby plan maximum). The region is set in vercel.json.
+    vercel: {
+      functions: { maxDuration: 60 }
+    }
+  },
+
   eslint: {
     config: {
       stylistic: {

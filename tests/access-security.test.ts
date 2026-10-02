@@ -1,7 +1,6 @@
-import { createHmac } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { canAccessSection, canManageSection, ROLES, SECTIONS } from '../shared/access'
-import { verifyWebhookSignature, withinServiceWindow } from '../server/utils/whatsapp'
+import { verifyWebhookToken, withinServiceWindow } from '../server/utils/whatsapp'
 import { generateTempPassword } from '../server/utils/tempPassword'
 
 describe('role access', () => {
@@ -41,29 +40,24 @@ describe('role access', () => {
   })
 })
 
-describe('verifyWebhookSignature', () => {
-  const secret = 'test-app-secret'
-  const body = JSON.stringify({ entry: [] })
-  const sign = (payload: string, key = secret) => `sha256=${createHmac('sha256', key).update(payload).digest('hex')}`
-
+describe('verifyWebhookToken', () => {
   afterEach(() => vi.unstubAllEnvs())
 
-  it('accepts a correct signature', () => {
-    expect(verifyWebhookSignature(body, sign(body), secret)).toBe(true)
+  it('accepts the configured secret', () => {
+    expect(verifyWebhookToken('s3cret-token', 's3cret-token')).toBe(true)
   })
 
-  it('rejects a tampered body, a wrong key or a missing header', () => {
-    expect(verifyWebhookSignature(`${body} `, sign(body), secret)).toBe(false)
-    expect(verifyWebhookSignature(body, sign(body, 'other'), secret)).toBe(false)
-    expect(verifyWebhookSignature(body, undefined, secret)).toBe(false)
-    expect(verifyWebhookSignature(body, 'md5=abc', secret)).toBe(false)
+  it('rejects a wrong, partial or missing token', () => {
+    expect(verifyWebhookToken('wrong', 's3cret-token')).toBe(false)
+    expect(verifyWebhookToken('s3cret', 's3cret-token')).toBe(false)
+    expect(verifyWebhookToken(undefined, 's3cret-token')).toBe(false)
   })
 
-  it('without a secret, only allows unsigned requests outside production', () => {
+  it('without a secret, only allows requests outside production', () => {
     vi.stubEnv('NODE_ENV', 'development')
-    expect(verifyWebhookSignature(body, undefined, '')).toBe(true)
+    expect(verifyWebhookToken(undefined, '')).toBe(true)
     vi.stubEnv('NODE_ENV', 'production')
-    expect(verifyWebhookSignature(body, undefined, '')).toBe(false)
+    expect(verifyWebhookToken(undefined, '')).toBe(false)
   })
 })
 

@@ -216,7 +216,7 @@ async function newsReply(children: Child[]) {
 
 // Delivery status callbacks ----------------------------------------------
 
-const STATUS_RANK: Record<DeliveryStatus, number> = { RECEIVED: 0, QUEUED: 1, SENT: 2, DELIVERED: 3, READ: 4, FAILED: 5 }
+const STATUS_RANK: Record<DeliveryStatus, number> = { RECEIVED: 0, QUEUED: 1, SENDING: 1, SENT: 2, DELIVERED: 3, READ: 4, FAILED: 5 }
 const STATUS_MAP: Record<string, DeliveryStatus> = { sent: 'SENT', delivered: 'DELIVERED', read: 'READ', failed: 'FAILED' }
 
 export async function handleStatus(update: { id: string, status: string, error?: string }) {

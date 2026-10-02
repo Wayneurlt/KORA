@@ -1,15 +1,16 @@
 import { requireManage } from '../../../utils/rbac'
 import { prisma } from '../../../utils/prisma'
 import { logAudit } from '../../../utils/audit'
-import { deliverAnnouncement } from '../../../services/announcement.service'
+import { processDeliveryBatch, queueAnnouncement } from '../../../services/announcement.service'
 import { isWhatsAppLive } from '../../../utils/whatsapp'
 
-// Publishes a draft and sends it to its audience on WhatsApp.
+// Publishes a draft, queues it for every parent in the audience and sends the
+// first batch. If `remaining` > 0 the dashboard continues via /deliver.
 export default defineEventHandler(async (event) => {
   const user = await requireManage(event, 'announcements')
   const id = getRouterParam(event, 'id')!
 
-  // Flip DRAFT → PUBLISHED atomically so a double click can't send twice.
+  // Flip DRAFT → PUBLISHED atomically so a double click can't publish twice.
   const { count } = await prisma.announcement.updateMany({
     where: { id, status: 'DRAFT' },
     data: { status: 'PUBLISHED', publishedAt: new Date() }
@@ -22,8 +23,9 @@ export default defineEventHandler(async (event) => {
   }
 
   const announcement = await prisma.announcement.findUniqueOrThrow({ where: { id } })
-  const result = await deliverAnnouncement(announcement)
+  const audience = await queueAnnouncement(announcement)
+  const batch = await processDeliveryBatch(announcement)
 
-  await logAudit({ userId: user.id, action: 'announcement.published', entity: 'Announcement', entityId: id, metadata: result })
-  return { ...result, simulated: !isWhatsAppLive() }
+  await logAudit({ userId: user.id, action: 'announcement.published', entity: 'Announcement', entityId: id, metadata: { audience } })
+  return { audience, ...batch, simulated: !isWhatsAppLive() }
 })

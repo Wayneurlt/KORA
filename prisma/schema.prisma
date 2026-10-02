@@ -111,6 +111,8 @@ enum MessageType {
 enum DeliveryStatus {
   RECEIVED
   QUEUED
+  /// Claimed by a delivery batch; reclaimed if it stays here too long (e.g. a timed-out request)
+  SENDING
   SENT
   DELIVERED
   READ
