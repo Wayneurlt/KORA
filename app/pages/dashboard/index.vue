@@ -36,7 +36,7 @@ const stats = computed(() => {
     {
       title: 'Parents',
       value: String(d?.parentCount ?? 0),
-      to: can('students') ? '/dashboard/students' : undefined,
+      to: can('students') ? '/dashboard/parents' : undefined,
       delta: String(d?.parentsThisMonth ?? 0),
       caption: 'Joined this month'
     },

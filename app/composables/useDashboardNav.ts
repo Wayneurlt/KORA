@@ -12,6 +12,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', to: '/dashboard', icon: 'i-lucide-layout-dashboard', section: 'dashboard' },
   { label: 'Students', to: '/dashboard/students', icon: 'i-lucide-users', section: 'students' },
+  { label: 'Parents', to: '/dashboard/parents', icon: 'i-lucide-contact', section: 'students' },
   { label: 'Results', to: '/dashboard/results', icon: 'i-lucide-graduation-cap', section: 'results' },
   { label: 'Fees', to: '/dashboard/fees', icon: 'i-lucide-wallet', section: 'fees' },
   { label: 'Announcements', to: '/dashboard/announcements', icon: 'i-lucide-megaphone', section: 'announcements' },
