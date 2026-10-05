@@ -36,6 +36,7 @@ describe('parseSendPulseWebhook', () => {
     expect(failures).toEqual([])
     expect(messages).toEqual([{
       from: '254700000004',
+      contactId: 'contact-1',
       providerMessageId: 'wamid.ABC123',
       text: '2',
       type: 'text',
@@ -68,6 +69,26 @@ describe('parseSendPulseWebhook', () => {
     const parsed = parseSendPulseWebhook([image]).messages[0]
     expect(parsed?.text).toBeNull()
     expect(parsed?.type).toBe('image')
+  })
+
+  it('keeps messages from WhatsApp accounts that hide their number, identified by contact id', () => {
+    // As received from a sender with a WhatsApp username: no phone anywhere.
+    const hidden = incoming()
+    ;(hidden.info.message.channel_data.message as Record<string, unknown>).from = null
+    ;(hidden as Record<string, unknown>).contact = {
+      id: '6ac34e78210699eb960c357e',
+      channel_data: { user_id: 'KE.3591420291038937', name: 'Gift', username: 'wayne_gift' },
+      variables: {}
+    }
+    const [message] = parseSendPulseWebhook([hidden], 'bot-1').messages
+    expect(message).toMatchObject({ from: null, contactId: '6ac34e78210699eb960c357e', profileName: 'Gift', text: 'hi' })
+  })
+
+  it('drops messages with neither a phone number nor a contact id', () => {
+    const anonymous = incoming()
+    ;(anonymous.info.message.channel_data.message as Record<string, unknown>).from = null
+    ;(anonymous as Record<string, unknown>).contact = { variables: {} }
+    expect(parseSendPulseWebhook([anonymous], 'bot-1').messages).toEqual([])
   })
 
   it('collects failed deliveries by message id', () => {

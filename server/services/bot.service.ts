@@ -1,6 +1,6 @@
 import type { ConversationCategory, DeliveryStatus } from '@prisma/client'
 import { prisma } from '../utils/prisma'
-import { sendWhatsAppText } from '../utils/whatsapp'
+import { sendWhatsAppText, type SendResult, type WhatsAppRecipient } from '../utils/whatsapp'
 import { normalizePhone } from '../../shared/phone'
 import { getSchoolSettings } from './schoolSettings.service'
 import { getFeeBalances } from './fees.service'
@@ -12,9 +12,16 @@ import { menuText, money, parseIntent, sameAdmissionNumber, type Intent } from '
 // requests (results, balance, notices) and leaves those conversations RESOLVED
 // so they stay out of the staff inbox. "Talk to the school" (or a staff reply)
 // opens the conversation; while it's OPEN / IN_PROGRESS the bot stays quiet.
+//
+// Parents are recognised by their WhatsApp account (SendPulse contact id) or
+// their number. WhatsApp hides the number of people who use a username, so a
+// sender we can't match lands in the inbox as an unlinked chat for staff to link.
 
 export interface InboundMessage {
-  from: string
+  /** Phone number — null when WhatsApp hides it */
+  from: string | null
+  /** SendPulse contact id of the sender */
+  contactId?: string | null
   providerMessageId: string
   text: string | null
   type: string
@@ -29,7 +36,7 @@ const INTENT_CATEGORY: Partial<Record<Intent, ConversationCategory>> = {
 }
 
 /** Send a text and store it as an outbound message on the conversation. */
-export async function sendAndRecord(input: { conversationId: string, to: string, content: string, staffId?: string | null }) {
+export async function sendAndRecord(input: { conversationId: string, to: WhatsAppRecipient, content: string, staffId?: string | null }) {
   const result = await sendWhatsAppText(input.to, input.content)
   const message = await prisma.message.create({
     data: {
@@ -49,20 +56,11 @@ export async function handleInbound(inbound: InboundMessage) {
   const duplicate = await prisma.message.findFirst({ where: { providerMessageId: inbound.providerMessageId }, select: { id: true } })
   if (duplicate) return
 
-  const number = normalizePhone(inbound.from) ?? inbound.from
-  const [school, parent] = await Promise.all([
-    getSchoolSettings(),
-    prisma.parent.findUnique({
-      where: { whatsappNumber: number },
-      include: { children: { include: { student: true } } }
-    })
-  ])
+  const phone = inbound.from ? normalizePhone(inbound.from) ?? inbound.from : null
+  const [school, parent] = await Promise.all([getSchoolSettings(), findParent(inbound.contactId ?? null, phone)])
 
   if (!parent || parent.status !== 'ACTIVE') {
-    await sendWhatsAppText(number, [
-      `Hello 👋 This number isn't registered with *${school.name}* yet.`,
-      school.phone ? `Please contact the school office on ${school.phone} to be added.` : 'Please contact the school office to be added.'
-    ].join('\n'))
+    await handleUnlinked(inbound, phone, school)
     return
   }
 
@@ -97,7 +95,8 @@ export async function handleInbound(inbound: InboundMessage) {
   })
   await prisma.conversation.update({ where: { id: conversation.id }, data: { updatedAt: new Date() } })
 
-  const reply = (body: string) => sendAndRecord({ conversationId: conversation.id, to: number, content: body })
+  const to = { contactId: inbound.contactId ?? parent.whatsappContactId, phone: phone ?? parent.whatsappNumber }
+  const reply = (body: string) => sendAndRecord({ conversationId: conversation.id, to, content: body })
 
   // A person is handling this conversation — the bot stays out of it.
   if (conversation.status === 'OPEN' || conversation.status === 'IN_PROGRESS') return
@@ -158,6 +157,111 @@ export async function handleInbound(inbound: InboundMessage) {
     default:
       await reply(`Sorry, I didn't understand that.\n\n${menuText(school.name)}\n\nOr reply *5* to talk to a member of staff.`)
   }
+}
+
+// Recognising senders ----------------------------------------------------
+
+const withChildren = { children: { include: { student: true } } } as const
+
+async function findParent(contactId: string | null, phone: string | null) {
+  if (contactId) {
+    const parent = await prisma.parent.findUnique({ where: { whatsappContactId: contactId }, include: withChildren })
+    if (parent) return parent
+  }
+  if (!phone) return null
+
+  const parent = await prisma.parent.findUnique({ where: { whatsappNumber: phone }, include: withChildren })
+  // Remember their WhatsApp account, so they're still recognised if they later hide their number.
+  if (parent && contactId && !parent.whatsappContactId) {
+    try {
+      await prisma.parent.update({ where: { id: parent.id }, data: { whatsappContactId: contactId } })
+      parent.whatsappContactId = contactId
+    } catch (error) {
+      console.error('[whatsapp] could not save contact id for parent', parent.id, error)
+    }
+  }
+  return parent
+}
+
+/**
+ * A sender we can't match to a parent: keep their messages in one inbox thread
+ * (no parent yet) so staff can see them and link the chat to the right parent.
+ */
+async function handleUnlinked(inbound: InboundMessage, phone: string | null, school: { name: string, phone: string | null }) {
+  const contactId = inbound.contactId ?? null
+  const existing = await prisma.conversation.findFirst({
+    where: { parentId: null, OR: [...(contactId ? [{ contactId }] : []), ...(phone ? [{ contactPhone: phone }] : [])] },
+    orderBy: { updatedAt: 'desc' }
+  })
+
+  const details = { contactId, contactName: inbound.profileName ?? existing?.contactName ?? null, contactPhone: phone ?? existing?.contactPhone ?? null }
+  const conversation = existing
+    ? await prisma.conversation.update({
+        where: { id: existing.id },
+        // A chat staff closed stays closed; anything else comes back to the inbox.
+        data: { ...details, status: existing.status === 'RESOLVED' ? 'OPEN' : existing.status }
+      })
+    : await prisma.conversation.create({ data: { ...details, category: 'GENERAL', status: 'OPEN' } })
+
+  await prisma.message.create({
+    data: {
+      conversationId: conversation.id,
+      direction: 'INBOUND',
+      messageType: 'TEXT',
+      content: (inbound.text ?? '').trim() || `[${inbound.type} message]`,
+      providerMessageId: inbound.providerMessageId,
+      deliveryStatus: 'RECEIVED',
+      createdAt: inbound.timestamp ?? new Date()
+    }
+  })
+
+  // Explain once, when the chat starts — not on every message.
+  if (!existing) {
+    await sendAndRecord({
+      conversationId: conversation.id,
+      to: { contactId, phone },
+      content: [
+        `Hello 👋 Thanks for messaging *${school.name}*.`,
+        'We couldn\'t match this WhatsApp account to a parent in our records yet. A member of staff will link it and reply here shortly.',
+        ...(school.phone ? [`You can also call the school office on ${school.phone}.`] : [])
+      ].join('\n\n')
+    })
+  }
+}
+
+/**
+ * Staff link an unrecognised chat to a parent. The WhatsApp account is saved on
+ * the parent (so the bot recognises them from now on), the parent counts as
+ * verified, and the bot sends them the menu.
+ */
+export async function linkConversation(conversationId: string, parentId: string): Promise<{ welcome: SendResult }> {
+  const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } })
+  if (!conversation) throw createError({ statusCode: 404, statusMessage: 'Conversation not found.' })
+  if (conversation.parentId) throw createError({ statusCode: 409, statusMessage: 'This chat is already linked to a parent.' })
+
+  const parent = await prisma.parent.findUnique({ where: { id: parentId } })
+  if (!parent || parent.status !== 'ACTIVE') throw createError({ statusCode: 400, statusMessage: 'Choose an active parent.' })
+
+  const { contactId } = conversation
+  await prisma.$transaction([
+    // One WhatsApp account belongs to one parent — take it off anyone else.
+    ...(contactId ? [prisma.parent.updateMany({ where: { whatsappContactId: contactId, id: { not: parent.id } }, data: { whatsappContactId: null } })] : []),
+    prisma.parent.update({
+      where: { id: parent.id },
+      data: { ...(contactId && { whatsappContactId: contactId }), verificationStatus: 'VERIFIED', verificationCode: null }
+    }),
+    // Resolved hands the chat back to the bot.
+    prisma.conversation.update({ where: { id: conversation.id }, data: { parentId: parent.id, status: 'RESOLVED' } }),
+    prisma.message.updateMany({ where: { conversationId: conversation.id, direction: 'INBOUND' }, data: { parentId: parent.id } })
+  ])
+
+  const school = await getSchoolSettings()
+  const { result } = await sendAndRecord({
+    conversationId: conversation.id,
+    to: { contactId, phone: conversation.contactPhone ?? parent.whatsappNumber },
+    content: `Thank you, ${parent.firstName} — your WhatsApp is now linked to *${school.name}* ✅\n\n${menuText(school.name)}`
+  })
+  return { welcome: result }
 }
 
 type Child = { id: string, firstName: string, lastName: string, className: string }

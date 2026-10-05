@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client'
 import { requireSection } from '../../utils/rbac'
 import { prisma } from '../../utils/prisma'
+import { conversationContact } from '../../utils/conversationContact'
 import { contains, conversationListQuery, searchWhere } from '../../validators/lists'
 
 export default defineEventHandler(async (event) => {
@@ -14,6 +15,8 @@ export default defineEventHandler(async (event) => {
     ...(query.category !== 'ALL' && { category: query.category }),
     ...searchWhere(query.search, term => [
       { parent: { OR: [{ firstName: contains(term) }, { lastName: contains(term) }, { whatsappNumber: contains(term) }] } },
+      { contactName: contains(term) },
+      { contactPhone: contains(term) },
       { messages: { some: { content: contains(term) } } }
     ])
   }
@@ -43,11 +46,7 @@ export default defineEventHandler(async (event) => {
           category: conversation.category,
           status: conversation.status,
           assignedTo: conversation.assignedTo?.name ?? null,
-          parent: {
-            id: conversation.parent.id,
-            name: `${conversation.parent.firstName} ${conversation.parent.lastName}`,
-            whatsappNumber: conversation.parent.whatsappNumber
-          },
+          parent: conversationContact(conversation),
           lastMessage: last,
           messageCount: conversation._count.messages,
           // The parent spoke last and nobody has replied yet.

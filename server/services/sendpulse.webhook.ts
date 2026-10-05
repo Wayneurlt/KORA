@@ -2,7 +2,10 @@
 // Docs: https://sendpulse.com/integrations/api/chatbot/webhooks
 
 export interface ParsedInbound {
-  from: string
+  /** Sender's phone number — missing when WhatsApp hides it (accounts with a username) */
+  from: string | null
+  /** SendPulse contact id — always present, stable for this bot */
+  contactId: string | null
   providerMessageId: string
   text: string | null
   type: string
@@ -20,7 +23,14 @@ interface SendPulseEvent {
   service?: string
   date?: number
   bot?: { id?: string }
-  contact?: { id?: string, name?: string, username?: string, phone?: string, variables?: Record<string, unknown> }
+  contact?: {
+    id?: string
+    name?: string
+    username?: string
+    phone?: string | number | null
+    channel_data?: { name?: string, username?: string, phone?: string | number | null }
+    variables?: Record<string, unknown>
+  }
   info?: {
     message_id?: string
     error_message?: string
@@ -57,12 +67,15 @@ export function parseSendPulseWebhook(payload: unknown, botId?: string) {
     if (event.title === 'incoming_message') {
       const channel = event.info?.message?.channel_data
       const message = channel?.message
-      const from = message?.from ?? event.contact?.phone ?? event.contact?.variables?.Phone
+      const from = message?.from ?? event.contact?.phone ?? event.contact?.channel_data?.phone ?? event.contact?.variables?.Phone
+      const contactId = event.contact?.id
       const providerMessageId = message?.id ?? channel?.message_id ?? event.info?.message?.id
-      if (!from || !providerMessageId) continue
+      // Senders with a WhatsApp username arrive without a number; the contact id still identifies them.
+      if ((!from && !contactId) || !providerMessageId) continue
 
       messages.push({
-        from: String(from),
+        from: from ? String(from) : null,
+        contactId: contactId ? String(contactId) : null,
         providerMessageId: String(providerMessageId),
         text: message?.text?.body
           ?? message?.button?.text
@@ -71,7 +84,7 @@ export function parseSendPulseWebhook(payload: unknown, botId?: string) {
           ?? null,
         type: message?.type ?? 'text',
         timestamp: message?.timestamp ? new Date(message.timestamp * 1000) : event.date ? new Date(event.date * 1000) : undefined,
-        profileName: event.contact?.name ?? event.contact?.username
+        profileName: event.contact?.name ?? event.contact?.channel_data?.name ?? event.contact?.username ?? event.contact?.channel_data?.username
       })
     } else if (event.title === 'failed_delivery' && event.info?.message_id) {
       failures.push({

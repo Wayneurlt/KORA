@@ -148,6 +148,13 @@ const assignee = computed({
   set: (value: string) => updateConversation({ assignedToId: value || null })
 })
 
+// Linking an unrecognised WhatsApp sender to a parent ----------------------
+const linkOpen = ref(false)
+
+async function onLinked() {
+  await Promise.all([reloadDetail(), refreshList()])
+}
+
 // Group messages under day separators.
 const days = computed(() => {
   const groups: { label: string, messages: Detail['messages'] }[] = []
@@ -254,6 +261,10 @@ const days = computed(() => {
                     :status="item.status"
                     class="text-[10px]"
                   />
+                  <span
+                    v-if="!item.parent.linked"
+                    class="rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[10px] font-medium text-[#B45309] dark:bg-[#B45309]/15 dark:text-[#FCD34D]"
+                  >Not linked</span>
                 </span>
               </span>
             </button>
@@ -305,6 +316,7 @@ const days = computed(() => {
               </p>
               <p class="flex flex-wrap items-center gap-x-2 text-xs text-shell-muted">
                 <a
+                  v-if="detail.parent.whatsappNumber"
                   :href="waLink(detail.parent.whatsappNumber)"
                   target="_blank"
                   rel="noopener"
@@ -315,6 +327,11 @@ const days = computed(() => {
                     class="size-3"
                   />+{{ detail.parent.whatsappNumber }}
                 </a>
+                <span v-else>Number hidden by WhatsApp</span>
+                <span
+                  v-if="!detail.parent.linked"
+                  class="font-medium text-[#B45309] dark:text-[#FCD34D]"
+                >· Not linked to a parent</span>
                 <span v-if="detail.parent.children.length">· Parent of {{ detail.parent.children.map(child => `${child.name} (${child.className})`).join(', ') }}</span>
               </p>
             </div>
@@ -379,6 +396,32 @@ const days = computed(() => {
                 Reopen
               </button>
             </div>
+          </div>
+
+          <div
+            v-if="!detail.parent.linked"
+            class="flex flex-wrap items-center gap-3 border-b border-shell-line bg-[#FEF3C7]/60 px-3 py-2.5 sm:px-4 dark:bg-[#B45309]/15"
+          >
+            <UIcon
+              name="i-lucide-link-2-off"
+              class="size-4 shrink-0 text-[#B45309] dark:text-[#FCD34D]"
+            />
+            <p class="min-w-0 flex-1 text-[13px] text-[#78350F] dark:text-[#FDE68A]">
+              Kora doesn't know which parent this is, so the bot can't answer them yet.
+              <span v-if="!canManage('students')">Ask an admin to link this chat to a parent.</span>
+            </p>
+            <button
+              v-if="canManage('students')"
+              type="button"
+              class="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-leaf-800 px-3.5 text-xs font-medium text-white transition-opacity hover:opacity-90 dark:bg-leaf-600"
+              @click="linkOpen = true"
+            >
+              <UIcon
+                name="i-lucide-link-2"
+                class="size-3.5"
+              />
+              Link to parent
+            </button>
           </div>
 
           <div
@@ -518,5 +561,13 @@ const days = computed(() => {
         </div>
       </section>
     </div>
+
+    <ConversationsLinkParentModal
+      v-if="detail && !detail.parent.linked"
+      v-model:open="linkOpen"
+      :conversation-id="detail.id"
+      :contact-name="detail.parent.name"
+      @linked="onLinked"
+    />
   </div>
 </template>

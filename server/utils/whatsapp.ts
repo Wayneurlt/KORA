@@ -73,7 +73,8 @@ async function post(path: string, body: Record<string, unknown>, preview: string
   const config = getWhatsAppConfig()
 
   if (!isWhatsAppLive(config)) {
-    console.info(`[whatsapp:test-mode] → +${String(body.phone)}: ${preview.replace(/\s+/g, ' ').slice(0, 160)}`)
+    const to = body.contact_id ? `contact ${String(body.contact_id)}` : `+${String(body.phone)}`
+    console.info(`[whatsapp:test-mode] → ${to}: ${preview.replace(/\s+/g, ' ').slice(0, 160)}`)
     return { ok: true, providerMessageId: `sim_${randomUUID()}`, simulated: true }
   }
 
@@ -122,11 +123,27 @@ export function splitMessage(text: string, limit = TEXT_LIMIT): string[] {
   return chunks
 }
 
+/**
+ * Who to send to: the SendPulse contact when we know it (works even when WhatsApp
+ * hides the person's number), otherwise their phone number.
+ */
+export type WhatsAppRecipient = string | { contactId?: string | null, phone?: string | null }
+
+function recipientFields(to: WhatsAppRecipient): { contact_id: string } | { phone: string } {
+  if (typeof to === 'string') return { phone: to }
+  if (to.contactId) return { contact_id: to.contactId }
+  return { phone: to.phone ?? '' }
+}
+
+function sendPath(to: WhatsAppRecipient, byContact: string, byPhone: string) {
+  return 'contact_id' in recipientFields(to) ? byContact : byPhone
+}
+
 /** Sends a text, split into several messages if it's longer than SendPulse allows. */
-export async function sendWhatsAppText(to: string, body: string): Promise<SendResult> {
+export async function sendWhatsAppText(to: WhatsAppRecipient, body: string): Promise<SendResult> {
   let last: SendResult = { ok: false, providerMessageId: null, simulated: false, error: 'Empty message' }
   for (const chunk of splitMessage(body)) {
-    last = await post('/contacts/sendByPhone', { phone: to, message: { type: 'text', text: { body: chunk } } }, chunk)
+    last = await post(sendPath(to, '/contacts/send', '/contacts/sendByPhone'), { ...recipientFields(to), message: { type: 'text', text: { body: chunk } } }, chunk)
     if (!last.ok) return last
   }
   return last
@@ -145,9 +162,9 @@ export function templateParam(text: string) {
     .slice(0, 1024)
 }
 
-export function sendWhatsAppTemplate(to: string, name: string, params: string[], language = getWhatsAppConfig().templateLanguage) {
-  return post('/contacts/sendTemplateByPhone', {
-    phone: to,
+export function sendWhatsAppTemplate(to: WhatsAppRecipient, name: string, params: string[], language = getWhatsAppConfig().templateLanguage) {
+  return post(sendPath(to, '/contacts/sendTemplate', '/contacts/sendTemplateByPhone'), {
+    ...recipientFields(to),
     template: {
       name,
       language: { code: language },

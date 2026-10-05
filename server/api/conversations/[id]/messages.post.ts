@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
   const conversation = await prisma.conversation.findUnique({
     where: { id },
     include: {
-      parent: { select: { whatsappNumber: true } },
+      parent: { select: { whatsappNumber: true, whatsappContactId: true } },
       messages: { where: { direction: 'INBOUND' }, orderBy: { createdAt: 'desc' }, take: 1, select: { createdAt: true } }
     }
   })
@@ -29,7 +29,12 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const { result, message } = await sendAndRecord({ conversationId: id, to: conversation.parent.whatsappNumber, content, staffId: user.id })
+  // Unlinked chats have no parent yet — reply to the WhatsApp contact that wrote in.
+  const to = {
+    contactId: conversation.parent?.whatsappContactId ?? conversation.contactId,
+    phone: conversation.parent?.whatsappNumber ?? conversation.contactPhone
+  }
+  const { result, message } = await sendAndRecord({ conversationId: id, to, content, staffId: user.id })
 
   await prisma.conversation.update({
     where: { id },

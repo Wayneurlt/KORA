@@ -89,15 +89,16 @@ export async function processDeliveryBatch(announcement: Announcement) {
     const ids = candidates.filter((_, index) => results[index]!.count === 1).map(candidate => candidate.id)
     const claimed = await prisma.announcementDelivery.findMany({
       where: { id: { in: ids } },
-      include: { parent: { select: { whatsappNumber: true } } }
+      include: { parent: { select: { whatsappNumber: true, whatsappContactId: true } } }
     })
 
     const queue = [...claimed]
     async function worker() {
       for (let delivery = queue.shift(); delivery; delivery = queue.shift()) {
+        const to = { contactId: delivery.parent.whatsappContactId, phone: delivery.parent.whatsappNumber }
         const result = announcementTemplate
-          ? await sendWhatsAppTemplate(delivery.parent.whatsappNumber, announcementTemplate, [announcement.title, announcement.message])
-          : await sendWhatsAppText(delivery.parent.whatsappNumber, text)
+          ? await sendWhatsAppTemplate(to, announcementTemplate, [announcement.title, announcement.message])
+          : await sendWhatsAppText(to, text)
         await prisma.announcementDelivery.update({
           where: { id: delivery.id },
           data: {

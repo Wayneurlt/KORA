@@ -1,5 +1,6 @@
 import { requireSection } from '../../utils/rbac'
 import { prisma } from '../../utils/prisma'
+import { conversationContact } from '../../utils/conversationContact'
 import { isWhatsAppLive, withinServiceWindow } from '../../utils/whatsapp'
 
 export default defineEventHandler(async (event) => {
@@ -36,12 +37,10 @@ export default defineEventHandler(async (event) => {
     // WhatsApp only delivers free-form replies within 24h of the parent's last message.
     canReply: conversation.status !== 'CLOSED' && (!live || withinServiceWindow(lastInboundAt)),
     parent: {
-      id: conversation.parent.id,
-      name: `${conversation.parent.firstName} ${conversation.parent.lastName}`,
-      whatsappNumber: conversation.parent.whatsappNumber,
-      email: conversation.parent.email,
-      verificationStatus: conversation.parent.verificationStatus,
-      children: conversation.parent.children.map(link => ({
+      ...conversationContact(conversation),
+      email: conversation.parent?.email ?? null,
+      verificationStatus: conversation.parent?.verificationStatus ?? null,
+      children: (conversation.parent?.children ?? []).map(link => ({
         id: link.student.id,
         name: `${link.student.firstName} ${link.student.lastName}`,
         className: link.student.className,

@@ -187,6 +187,9 @@ model Parent {
   lastName           String
   phoneNumber        String
   whatsappNumber     String              @unique
+  /// SendPulse contact id of the parent's WhatsApp account. Recognises parents
+  /// whose number WhatsApp hides (accounts with a username) and is used for replies.
+  whatsappContactId  String?             @unique
   email              String?
   status             ParentStatus        @default(ACTIVE)
   verificationStatus VerificationStatus  @default(UNVERIFIED)
@@ -359,19 +362,25 @@ model Announcement {
 
 model Conversation {
   id           String               @id @default(cuid())
-  parentId     String
+  /// Null until staff link the chat to a parent (sender not recognised).
+  parentId     String?
   category     ConversationCategory
   status       ConversationStatus   @default(OPEN)
   assignedToId String?
+  /// The WhatsApp sender, as SendPulse reported them (kept for unlinked chats).
+  contactId    String?
+  contactName  String?
+  contactPhone String?
   createdAt    DateTime             @default(now())
   updatedAt    DateTime             @updatedAt
 
-  parent     Parent    @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  parent     Parent?   @relation(fields: [parentId], references: [id], onDelete: Cascade)
   assignedTo User?     @relation("ConversationAssignedTo", fields: [assignedToId], references: [id])
   messages   Message[]
 
   @@index([status])
   @@index([parentId])
+  @@index([contactId])
 }
 
 model Message {
