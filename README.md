@@ -51,8 +51,9 @@ To go live:
 2. **Turn off SendPulse's own automation for this bot** — the welcome flow, standard
    replies and any trigger flows. Kora answers parents itself (it needs live results and
    balances); if SendPulse flows stay on, parents get two replies.
-3. **API keys**: SendPulse → Account settings → API → REST API. Put the ID and Secret in
-   `SENDPULSE_CLIENT_ID` / `SENDPULSE_CLIENT_SECRET`, and the bot's ID in `SENDPULSE_BOT_ID`.
+3. **API keys**: SendPulse → Account settings → API. Put an API key (`sp_apikey_…`) in
+   `SENDPULSE_API_KEY`, or the REST API ID and Secret in `SENDPULSE_CLIENT_ID` /
+   `SENDPULSE_CLIENT_SECRET`. Put the bot's ID in `SENDPULSE_BOT_ID`.
 4. **Webhook**: set `SENDPULSE_WEBHOOK_SECRET` to a long random string, deploy, then copy the
    webhook URL from **Settings → WhatsApp connection** (it includes the secret). In SendPulse
    go to the bot's **Bot settings → Webhooks**, paste it, and tick **Incoming message** and

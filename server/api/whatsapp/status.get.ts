@@ -13,6 +13,7 @@ export default defineEventHandler(async (event) => {
   return {
     provider: 'SendPulse',
     live: isWhatsAppLive(config),
+    apiKeySet: !!config.apiKey,
     clientIdSet: !!config.clientId,
     clientSecretSet: !!config.clientSecret,
     botId: config.botId ? `…${config.botId.slice(-6)}` : null,

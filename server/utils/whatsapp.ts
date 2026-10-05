@@ -2,7 +2,9 @@ import { randomUUID, timingSafeEqual } from 'node:crypto'
 
 // WhatsApp messaging through SendPulse (https://sendpulse.com/integrations/api/chatbot/whatsapp).
 //
-// When SENDPULSE_CLIENT_ID / SENDPULSE_CLIENT_SECRET / SENDPULSE_BOT_ID are not set,
+// Auth is a SendPulse API key (SENDPULSE_API_KEY, sent as the bearer token) or
+// REST API client credentials (SENDPULSE_CLIENT_ID / SENDPULSE_CLIENT_SECRET).
+// When neither is set, or SENDPULSE_BOT_ID is missing,
 // sends run in *test mode*: nothing leaves the server, the message is logged and
 // reported as sent with a "sim_" id. That keeps the whole flow testable locally.
 
@@ -12,6 +14,7 @@ const API_BASE = 'https://api.sendpulse.com'
 export const TEXT_LIMIT = 1000
 
 export interface WhatsAppConfig {
+  apiKey: string
   clientId: string
   clientSecret: string
   botId: string
@@ -22,6 +25,7 @@ export interface WhatsAppConfig {
 
 export function getWhatsAppConfig(): WhatsAppConfig {
   return {
+    apiKey: process.env.SENDPULSE_API_KEY || '',
     clientId: process.env.SENDPULSE_CLIENT_ID || '',
     clientSecret: process.env.SENDPULSE_CLIENT_SECRET || '',
     botId: process.env.SENDPULSE_BOT_ID || '',
@@ -32,7 +36,7 @@ export function getWhatsAppConfig(): WhatsAppConfig {
 }
 
 export function isWhatsAppLive(config = getWhatsAppConfig()) {
-  return !!(config.clientId && config.clientSecret && config.botId)
+  return !!((config.apiKey || (config.clientId && config.clientSecret)) && config.botId)
 }
 
 export interface SendResult {
@@ -46,6 +50,7 @@ export interface SendResult {
 let token: { value: string, expiresAt: number } | null = null
 
 async function getAccessToken(config: WhatsAppConfig, force = false) {
+  if (config.apiKey) return config.apiKey
   if (!force && token && Date.now() < token.expiresAt - 60_000) return token.value
   const data = await $fetch<{ access_token: string, expires_in?: number }>(`${API_BASE}/oauth/access_token`, {
     method: 'POST',

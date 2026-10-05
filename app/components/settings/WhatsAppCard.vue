@@ -113,8 +113,7 @@ async function copyWebhook() {
         </div>
         <div
           v-for="row in [
-            { label: 'API client ID', ok: status.clientIdSet, value: status.clientIdSet ? 'Set' : 'Not set' },
-            { label: 'API client secret', ok: status.clientSecretSet, value: status.clientSecretSet ? 'Set' : 'Not set' },
+            { label: 'API credentials', ok: status.apiKeySet || (status.clientIdSet && status.clientSecretSet), value: status.apiKeySet ? 'API key' : status.clientIdSet && status.clientSecretSet ? 'Client ID + secret' : 'Not set' },
             { label: 'WhatsApp bot ID', ok: !!status.botId, value: status.botId ?? 'Not set' },
             { label: 'Webhook secret', ok: status.webhookSecretSet, value: status.webhookSecretSet ? 'Set' : 'Not set' },
             { label: 'Announcement template', ok: !!status.announcementTemplate, value: status.announcementTemplate ? `${status.announcementTemplate} (${status.templateLanguage})` : 'Not set — sends plain text' }
